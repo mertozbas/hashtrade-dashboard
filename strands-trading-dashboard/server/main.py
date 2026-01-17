@@ -193,14 +193,7 @@ async def _handle_ui_action(agent, websocket, payload: dict, client_creds: dict)
                 ).dumps()
             )
 
-            # Persist UI action as history (safe: we're outside callback)
-            _history_emit_and_store(
-                agent,
-                websocket,
-                turn_id,
-                "ui",
-                {"action": "fetch_ohlcv", "exchange": exchange_id, "symbol": symbol, "timeframe": timeframe, "limit": limit, "points": len(ohlcv)},
-            )
+            # Note: Not logging fetch_ohlcv to history - it's a routine chart refresh
 
         except Exception as e:
             await _send_ui_error(websocket, turn_id, f"fetch_ohlcv failed: {e}")
