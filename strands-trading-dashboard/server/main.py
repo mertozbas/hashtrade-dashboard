@@ -60,9 +60,11 @@ class WSCallback:
         self.turn_id = turn_id
         self.tool_count = 0
         self.previous_tool_use = None
+        self.current_tool_name = None  # Track current tool for result matching
 
         # turn-local action capture (no tool calls)
         self.actions: list[dict] = []  # [{type:'tool_start'|'tool_end', ...}]
+        self.history_records: list[dict] = []  # Captured history records from agent's history calls
 
     async def _send(self, msg_type: str, data: Any = "", meta: Dict[str, Any] | None = None):
         try:
@@ -90,6 +92,7 @@ class WSCallback:
                 self.previous_tool_use = current_tool_use
                 self.tool_count += 1
                 tool_name = current_tool_use.get("name", "Unknown tool")
+                self.current_tool_name = tool_name  # Track for result matching
 
                 self._schedule("tool_start", tool_name, {"tool_number": self.tool_count})
 
@@ -123,6 +126,25 @@ class WSCallback:
                                 "ts": time.time(),
                             }
                         )
+
+                        # If this was the history tool, capture the record to emit later
+                        if self.current_tool_name == "history" and success:
+                            try:
+                                result_content = tool_result.get("content", [])
+                                for rc in result_content:
+                                    if isinstance(rc, dict) and rc.get("text"):
+                                        text = rc["text"]
+                                        # Try to parse as JSON record
+                                        parsed = json.loads(text)
+                                        if isinstance(parsed, dict) and parsed.get("ts"):
+                                            # Single record from add action
+                                            self.history_records.append(parsed)
+                                        elif isinstance(parsed, list):
+                                            # List of records from tail action - don't capture
+                                            pass
+                            except Exception:
+                                pass
+                        self.current_tool_name = None  # Reset after result
 
 
 async def _send_ui_error(ws, turn_id: str, err: str):
@@ -305,6 +327,10 @@ async def run_turn(agent, websocket, loop, user_text: str, turn_id: str):
                 "tool_end",
                 {"status": a.get("status"), "success": bool(a.get("success"))},
             )
+
+    # Emit any history records that the agent added (for chart auto-switch etc)
+    for rec in cb.history_records:
+        await websocket.send(StreamMsg("history", turn_id, time.time(), rec).dumps())
 
     # best-effort balance snapshot after each turn
     try:
