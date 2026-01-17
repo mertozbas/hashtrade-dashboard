@@ -283,8 +283,9 @@
     // Close modal
     closeSettingsModal();
 
-    // Fetch chart immediately
+    // Fetch chart and balance immediately
     requestChart();
+    requestBalance();
   }
 
   function sendCredentials() {
@@ -404,12 +405,24 @@
     const snap = state.streamSnaps[state.nowIndex] || {events:[], bal:null, chart:null, history:[], ts:''};
     document.getElementById('timeReadout').textContent = snap.ts ? `index ${state.nowIndex}/${Math.max(0,state.streamSnaps.length-1)} • ${snap.ts}` : 't=0';
 
-    // balance (best-effort parse)
+    // balance display
     if (snap.bal){
-      const t = (snap.bal.content?.[0]?.text ?? JSON.stringify(snap.bal)).toString();
-      const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
-      document.getElementById('balUsd').textContent = '$' + usd;
-      document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
+      const bal = snap.bal;
+      // New format: {status, total: {USDT: x, BTC: y}, free: {...}}
+      if (bal.total) {
+        const usdt = parseFloat(bal.total.USDT || bal.total.USD || 0);
+        const btc = parseFloat(bal.total.BTC || 0);
+        // Calculate approximate USD value (USDT + BTC value)
+        const approxUsd = usdt + (btc * (state.chart.ohlcv?.length ? state.chart.ohlcv[state.chart.ohlcv.length-1][4] : 0));
+        document.getElementById('balUsd').textContent = '$' + approxUsd.toFixed(2);
+        document.getElementById('balUsdt').textContent = usdt.toFixed(2);
+      } else {
+        // Legacy format fallback
+        const t = (bal.content?.[0]?.text ?? JSON.stringify(bal)).toString();
+        const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
+        document.getElementById('balUsd').textContent = '$' + usd;
+        document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
+      }
     }
 
     // chart
@@ -569,8 +582,9 @@
       document.getElementById('conn').innerHTML='<span class="status-dot connected"></span>connected';
       // Send credentials first
       sendCredentials();
-      // Then request chart
+      // Then request chart and balance
       requestChart();
+      requestBalance();
       // Start live timer
       startLiveTimer();
     };
@@ -662,6 +676,17 @@
       symbol: state.settings.symbol,
       timeframe: state.settings.timeframe,
       limit: 240
+    };
+    ws?.send(JSON.stringify(req));
+  }
+
+  function requestBalance(){
+    const req = {
+      type: 'ui',
+      action: 'fetch_balance',
+      exchange: state.settings.exchange,
+      apiKey: state.settings.apiKey,
+      apiSecret: state.settings.apiSecret
     };
     ws?.send(JSON.stringify(req));
   }

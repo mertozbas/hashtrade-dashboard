@@ -206,6 +206,83 @@ async def _handle_ui_action(agent, websocket, payload: dict, client_creds: dict)
             await _send_ui_error(websocket, turn_id, f"fetch_ohlcv failed: {e}")
         return
 
+    if action == "fetch_balance":
+        exchange_id = payload.get("exchange") or client_creds.get("exchange") or os.getenv("DASH_EXCHANGE", "bybit")
+        api_key = payload.get("apiKey") or client_creds.get("apiKey") or os.getenv("CCXT_API_KEY", "")
+        api_secret = payload.get("apiSecret") or client_creds.get("apiSecret") or os.getenv("CCXT_SECRET", "")
+
+        if not api_key or not api_secret:
+            await websocket.send(
+                StreamMsg(
+                    "balance",
+                    turn_id,
+                    time.time(),
+                    {"status": "no_credentials", "total": {"USDT": 0}, "free": {"USDT": 0}},
+                ).dumps()
+            )
+            return
+
+        try:
+            if ccxt is None:
+                raise ImportError("ccxt not installed")
+
+            exchange_class = getattr(ccxt, exchange_id)
+
+            # Balance is a PRIVATE endpoint - needs API keys
+            cfg = {
+                "apiKey": api_key,
+                "secret": api_secret,
+                "enableRateLimit": True,
+            }
+
+            # Exchange-specific options
+            if exchange_id == "bybit":
+                cfg["options"] = {"defaultType": "spot"}
+            elif exchange_id == "binance":
+                cfg["options"] = {"defaultType": "spot"}
+            elif exchange_id == "okx":
+                cfg["options"] = {"defaultType": "spot"}
+
+            exchange_instance = exchange_class(cfg)
+            balance = exchange_instance.fetch_balance()
+
+            # Extract relevant balance info
+            total = balance.get("total", {})
+            free = balance.get("free", {})
+
+            # Filter to non-zero balances
+            non_zero_total = {k: v for k, v in total.items() if v and float(v) > 0}
+            non_zero_free = {k: v for k, v in free.items() if v and float(v) > 0}
+
+            await websocket.send(
+                StreamMsg(
+                    "balance",
+                    turn_id,
+                    time.time(),
+                    {"status": "success", "total": non_zero_total, "free": non_zero_free},
+                ).dumps()
+            )
+
+            # Persist balance action as history
+            _history_emit_and_store(
+                agent,
+                websocket,
+                turn_id,
+                "balance",
+                {"exchange": exchange_id, "total": non_zero_total},
+            )
+
+        except Exception as e:
+            await websocket.send(
+                StreamMsg(
+                    "balance",
+                    turn_id,
+                    time.time(),
+                    {"status": "error", "error": str(e), "total": {}, "free": {}},
+                ).dumps()
+            )
+        return
+
     await _send_ui_error(websocket, turn_id, f"Unknown UI action: {action}")
 
 
