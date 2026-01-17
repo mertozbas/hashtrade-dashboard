@@ -1,10 +1,22 @@
-import asyncio, json, time, uuid, os
+import asyncio, json, time, uuid, os, sys
 from dataclasses import dataclass
 from typing import Any, Dict, Optional
 
 import websockets
 
 from devduck import DevDuck
+
+# Add tools directory to path so we can import ccxt_tool directly
+_proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
+_tools_dir = os.path.join(_proj_root, "tools")
+if _tools_dir not in sys.path:
+    sys.path.insert(0, _tools_dir)
+
+# Import ccxt_generic directly for UI actions (bypasses agent wrapper)
+try:
+    import ccxt
+except ImportError:
+    ccxt = None
 
 
 # Message envelope matches websocket_ref.py
@@ -120,19 +132,6 @@ async def _send_ui_error(ws, turn_id: str, err: str):
         pass
 
 
-def _extract_json_block(text: str) -> Any:
-    """Extract first ```json ... ``` block. Return parsed JSON or None."""
-    if not text:
-        return None
-    try:
-        if "```json" in text:
-            block = text.split("```json", 1)[1].split("```", 1)[0]
-            return json.loads(block)
-    except Exception:
-        return None
-    return None
-
-
 def _history_emit_and_store(agent, websocket, turn_id: str, event_type: str, data: dict):
     """Store history via history tool + emit to UI. MUST be called outside callbacks."""
     if not (hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", [])):
@@ -162,18 +161,20 @@ async def _handle_ui_action(agent, websocket, payload: dict):
         symbol = payload.get("symbol", "BTC/USDT")
         timeframe = payload.get("timeframe", "1m")
         limit = int(payload.get("limit", 240))
-        exchange = payload.get("exchange", os.getenv("DASH_EXCHANGE", "bybit"))
+        exchange_id = payload.get("exchange", os.getenv("DASH_EXCHANGE", "bybit"))
 
         try:
-            res = agent.tool.ccxt_generic(
-                exchange=exchange,
-                method="fetch_ohlcv",
-                args=json.dumps([symbol, timeframe, None, limit]),
-                record_direct_tool_call=False,
-            )
-            txt = res.get("content", [{}])[0].get("text", "")
-            parsed = _extract_json_block(txt)
-            ohlcv = parsed if isinstance(parsed, list) else []
+            if ccxt is None:
+                raise ImportError("ccxt not installed")
+
+            # Use CCXT directly instead of going through agent wrapper
+            exchange_class = getattr(ccxt, exchange_id)
+            exchange_instance = exchange_class({
+                "enableRateLimit": True,
+                "options": {"defaultType": "swap"} if exchange_id == "bybit" else {}
+            })
+
+            ohlcv = exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
 
             await websocket.send(
                 StreamMsg(
@@ -190,7 +191,7 @@ async def _handle_ui_action(agent, websocket, payload: dict):
                 websocket,
                 turn_id,
                 "ui",
-                {"action": "fetch_ohlcv", "exchange": exchange, "symbol": symbol, "timeframe": timeframe, "limit": limit, "points": len(ohlcv)},
+                {"action": "fetch_ohlcv", "exchange": exchange_id, "symbol": symbol, "timeframe": timeframe, "limit": limit, "points": len(ohlcv)},
             )
 
         except Exception as e:

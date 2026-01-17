@@ -135,10 +135,9 @@
 
   const state = {
     playing:false, playTimer:null, nowIndex:0,
-    streamEvents:[],       // raw stream events for time travel chat
-    streamSnaps:[],
-    historyItems:[],      // persisted "actions" (from history tool)
-    historySnaps:[],
+    streamEvents:[],       // raw stream events for time travel (chat + history + balance + ohlcv)
+    streamSnaps:[],        // snapshots at each event index (for time travel)
+    historyItems:[],       // all history items (full list)
     chart: { symbol:'BTC/USDT', tf:'1m', ohlcv:[] },
   };
 
@@ -164,11 +163,22 @@
     const snaps=[];
     let bal=null;
     let chart=null;
+    let historyUpToNow=[];
     for(let i=0;i<state.streamEvents.length;i++){
       const e=state.streamEvents[i];
       if(e.type==='balance') bal=e.msg.data;
       if(e.type==='ohlcv') chart=e.msg.data;
-      snaps.push({i, ts:e.ts, bal, chart, events: state.streamEvents.slice(0,i+1)});
+      if(e.type==='history') historyUpToNow = [...historyUpToNow, e.msg.data];
+      if(e.type==='history_sync') historyUpToNow = Array.isArray(e.msg.data) ? [...e.msg.data] : [];
+      if(e.type==='history_cleared') historyUpToNow = [];
+      snaps.push({
+        i,
+        ts:e.ts,
+        bal,
+        chart,
+        history: [...historyUpToNow],
+        events: state.streamEvents.slice(0,i+1)
+      });
     }
     state.streamSnaps=snaps;
     document.getElementById('timeSlider').max=String(Math.max(0, snaps.length-1));
@@ -188,18 +198,12 @@
   function addHistoryItem(rec){
     if(!rec) return;
     state.historyItems.push(rec);
-    buildHistorySnaps();
-    // do not force slider; history is independent
-  }
-
-  function buildHistorySnaps(){
-    // simple append-only; keep for future if you want time-bound views
-    state.historySnaps = state.historyItems.slice();
+    // history is now part of streamEvents for time travel
   }
 
   // --- RENDER ---
   function renderAll(){
-    const snap = state.streamSnaps[state.nowIndex] || {events:[], bal:null, chart:null, ts:''};
+    const snap = state.streamSnaps[state.nowIndex] || {events:[], bal:null, chart:null, history:[], ts:''};
     document.getElementById('timeReadout').textContent = snap.ts ? `index ${state.nowIndex}/${Math.max(0,state.streamSnaps.length-1)} • ${snap.ts}` : 't=0';
 
     // balance (best-effort parse)
@@ -220,22 +224,24 @@
       drawChart([]);
     }
 
-    // center: actions history only
-    renderHistoryPanel();
+    // center: history panel from snapshot (time travel enabled)
+    renderHistoryPanel(snap.history || []);
 
     // right: time travel chat
     renderChatFromStream(snap.events);
   }
 
-  function renderHistoryPanel(){
-    document.getElementById('eventCount').textContent = String(state.historyItems.length);
+  function renderHistoryPanel(historyForSnap){
+    // Use snapshot history if provided, otherwise use full historyItems (for live mode)
+    const items = historyForSnap.length > 0 ? historyForSnap : state.historyItems;
+    document.getElementById('eventCount').textContent = String(items.length);
     const tl=document.getElementById('timeline');
     tl.innerHTML='';
 
     // show last 250 actions
-    const items = state.historyItems.slice(-250);
+    const displayItems = items.slice(-250);
 
-    for(const r of items){
+    for(const r of displayItems){
       const d=document.createElement('div'); d.className='event';
       const ts = r.ts ? new Date(r.ts*1000).toISOString() : isoNow();
       const type = r.type || 'action';
@@ -379,26 +385,27 @@
       try{ msg=JSON.parse(ev.data); }catch{ msg={type:'raw', data:ev.data}; }
       const t=msg.type;
 
-      // Actions history stream
+      // Actions history stream - add to streamEvents for time travel
       if(t==='history_sync'){
         const arr = Array.isArray(msg.data) ? msg.data : [];
         state.historyItems = arr;
-        buildHistorySnaps();
-        renderHistoryPanel();
+        // Add to stream events so time travel works
+        addStreamEvent(t, msg);
         return;
       }
       if(t==='history'){
         addHistoryItem(msg.data);
-        // keep panel in sync even while scrubbing
-        renderHistoryPanel();
+        // Add to stream events so time travel works
+        addStreamEvent(t, msg);
         return;
       }
       if(t==='history_cleared'){
-        state.historyItems=[]; buildHistorySnaps(); renderHistoryPanel();
+        state.historyItems = [];
+        addStreamEvent(t, msg);
         return;
       }
 
-      // Store stream events for time travel (do NOT put chunks into history panel)
+      // Store stream events for time travel
       if (t==='turn_start' || t==='chunk' || t==='tool_start' || t==='tool_end' || t==='turn_end' || t==='balance' || t==='ohlcv' || t==='error'){
         addStreamEvent(t, msg);
       }
