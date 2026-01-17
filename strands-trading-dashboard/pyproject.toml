@@ -1,0 +1,20 @@
+[project]
+name = "strands-trading-dashboard"
+version = "0.1.0"
+description = "Trading dashboard + DevDuck agent streaming"
+requires-python = ">=3.11"
+
+dependencies = [
+  "devduck",
+  "websockets>=12.0",
+]
+
+[project.scripts]
+strands-trading-dashboard = "server.main:main"
+
+[tool.setuptools]
+packages = ["server"]
+
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"

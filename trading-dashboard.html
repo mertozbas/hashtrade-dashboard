@@ -1,0 +1,869 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Trading Dashboard</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/ccxt@4.2.25/dist/ccxt.browser.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #0a0a0a;
+            color: #ffffff;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 400px;
+            grid-template-rows: 60px 1fr 80px;
+            height: 100vh;
+            gap: 1px;
+            background: #1a1a1a;
+        }
+
+        .header {
+            grid-column: 1 / -1;
+            background: #1e1e1e;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            border-bottom: 1px solid #333;
+        }
+
+        .balance-section {
+            display: flex;
+            align-items: center;
+            gap: 20px;
+        }
+
+        .balance-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+
+        .balance-label {
+            font-size: 12px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .balance-value {
+            font-size: 18px;
+            font-weight: 600;
+            color: #00ff88;
+        }
+
+        .main-content {
+            display: grid;
+            grid-template-columns: 1fr 300px;
+            gap: 1px;
+            background: #0a0a0a;
+        }
+
+        .left-panel {
+            background: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .chart-container {
+            flex: 1;
+            padding: 20px;
+            position: relative;
+        }
+
+        .chart-header {
+            display: flex;
+            justify-content: between;
+            align-items: center;
+            margin-bottom: 20px;
+        }
+
+        .chart-title {
+            font-size: 18px;
+            font-weight: 600;
+        }
+
+        .time-controls {
+            display: flex;
+            gap: 10px;
+            align-items: center;
+        }
+
+        .time-btn {
+            background: #333;
+            border: none;
+            color: #fff;
+            padding: 6px 12px;
+            border-radius: 4px;
+            cursor: pointer;
+            font-size: 12px;
+        }
+
+        .time-btn.active {
+            background: #00ff88;
+            color: #000;
+        }
+
+        .history-section {
+            background: #1e1e1e;
+            padding: 20px;
+            border-bottom: 1px solid #333;
+            height: 300px;
+            overflow-y: auto;
+        }
+
+        .history-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #00ff88;
+        }
+
+        .history-item {
+            background: #2a2a2a;
+            padding: 12px;
+            border-radius: 6px;
+            margin-bottom: 8px;
+            border-left: 3px solid #00ff88;
+        }
+
+        .history-time {
+            font-size: 11px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .history-action {
+            font-size: 13px;
+            color: #fff;
+        }
+
+        .right-panel {
+            background: #1e1e1e;
+            display: flex;
+            flex-direction: column;
+        }
+
+        .agent-screen {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+        }
+
+        .agent-title {
+            font-size: 16px;
+            font-weight: 600;
+            margin-bottom: 15px;
+            color: #00ff88;
+        }
+
+        .agent-message {
+            background: #2a2a2a;
+            padding: 12px;
+            border-radius: 8px;
+            margin-bottom: 10px;
+        }
+
+        .agent-message.user {
+            background: #0066cc;
+            margin-left: 20px;
+        }
+
+        .agent-message.agent {
+            background: #2a2a2a;
+            margin-right: 20px;
+        }
+
+        .message-time {
+            font-size: 10px;
+            color: #888;
+            margin-bottom: 4px;
+        }
+
+        .message-content {
+            font-size: 13px;
+            line-height: 1.4;
+        }
+
+        .bottom-panel {
+            grid-column: 1 / -1;
+            background: #1e1e1e;
+            display: flex;
+            align-items: center;
+            padding: 0 20px;
+            gap: 15px;
+            border-top: 1px solid #333;
+        }
+
+        .time-player {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+        }
+
+        .play-btn {
+            background: #00ff88;
+            border: none;
+            color: #000;
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 16px;
+        }
+
+        .time-slider {
+            width: 200px;
+            height: 4px;
+            background: #333;
+            border-radius: 2px;
+            position: relative;
+            cursor: pointer;
+        }
+
+        .time-progress {
+            height: 100%;
+            background: #00ff88;
+            border-radius: 2px;
+            width: 0%;
+            transition: width 0.1s;
+        }
+
+        .chat-input-container {
+            flex: 1;
+            display: flex;
+            gap: 10px;
+        }
+
+        .chat-input {
+            flex: 1;
+            background: #2a2a2a;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 12px 16px;
+            border-radius: 25px;
+            font-size: 14px;
+            outline: none;
+        }
+
+        .chat-input:focus {
+            border-color: #00ff88;
+        }
+
+        .send-btn {
+            background: #00ff88;
+            border: none;
+            color: #000;
+            padding: 12px 20px;
+            border-radius: 25px;
+            cursor: pointer;
+            font-weight: 600;
+        }
+
+        .api-config {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            background: #2a2a2a;
+            padding: 20px;
+            border-radius: 8px;
+            border: 1px solid #444;
+            z-index: 1000;
+        }
+
+        .api-input {
+            background: #1a1a1a;
+            border: 1px solid #444;
+            color: #fff;
+            padding: 8px 12px;
+            border-radius: 4px;
+            margin: 5px 0;
+            width: 200px;
+        }
+
+        .config-btn {
+            background: #00ff88;
+            border: none;
+            color: #000;
+            padding: 8px 16px;
+            border-radius: 4px;
+            cursor: pointer;
+            margin-top: 10px;
+        }
+
+        .trade-marker {
+            position: absolute;
+            width: 8px;
+            height: 8px;
+            background: #ff4444;
+            border-radius: 50%;
+            border: 2px solid #fff;
+            z-index: 10;
+        }
+
+        .trade-marker.buy {
+            background: #00ff88;
+        }
+
+        .trade-marker.sell {
+            background: #ff4444;
+        }
+
+        #tradingChart {
+            background: #0a0a0a;
+            border-radius: 8px;
+        }
+
+        .status-indicator {
+            width: 8px;
+            height: 8px;
+            border-radius: 50%;
+            background: #00ff88;
+            margin-right: 8px;
+        }
+
+        .status-indicator.disconnected {
+            background: #ff4444;
+        }
+    </style>
+</head>
+<body>
+    <div class="dashboard">
+        <!-- Header with Balance -->
+        <div class="header">
+            <div class="balance-section">
+                <div class="balance-item">
+                    <div class="balance-label">Total Balance</div>
+                    <div class="balance-value" id="totalBalance">$0.00</div>
+                </div>
+                <div class="balance-item">
+                    <div class="balance-label">Available</div>
+                    <div class="balance-value" id="availableBalance">$0.00</div>
+                </div>
+                <div class="balance-item">
+                    <div class="balance-label">In Orders</div>
+                    <div class="balance-value" id="inOrders">$0.00</div>
+                </div>
+                <div class="balance-item">
+                    <div class="balance-label">P&L Today</div>
+                    <div class="balance-value" id="pnlToday">$0.00</div>
+                </div>
+            </div>
+            <div style="margin-left: auto; display: flex; align-items: center;">
+                <div class="status-indicator" id="connectionStatus"></div>
+                <span id="connectionText">Connected</span>
+            </div>
+        </div>
+
+        <!-- Main Content Area -->
+        <div class="main-content">
+            <!-- Left Panel: Trading Chart -->
+            <div class="left-panel">
+                <div class="chart-container">
+                    <div class="chart-header">
+                        <div class="chart-title">ETH/USD</div>
+                        <div class="time-controls">
+                            <button class="time-btn active" data-timeframe="1m">1m</button>
+                            <button class="time-btn" data-timeframe="5m">5m</button>
+                            <button class="time-btn" data-timeframe="15m">15m</button>
+                            <button class="time-btn" data-timeframe="1h">1h</button>
+                            <button class="time-btn" data-timeframe="4h">4h</button>
+                            <button class="time-btn" data-timeframe="1d">1d</button>
+                        </div>
+                    </div>
+                    <canvas id="tradingChart" width="800" height="400"></canvas>
+                </div>
+                
+                <!-- History Section -->
+                <div class="history-section">
+                    <div class="history-title">📈 Trading History</div>
+                    <div id="historyContainer">
+                        <!-- History items will be populated here -->
+                    </div>
+                </div>
+            </div>
+
+            <!-- Right Panel: Agent Chat -->
+            <div class="right-panel">
+                <div class="agent-screen">
+                    <div class="agent-title">🤖 Trading Agent</div>
+                    <div id="chatContainer">
+                        <div class="agent-message agent">
+                            <div class="message-time">12:00:00</div>
+                            <div class="message-content">Hello! I'm your trading agent. Send me commands like "buy 5 dollars ETH" and I'll execute them for you.</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Bottom Panel: Time Player & Chat Input -->
+        <div class="bottom-panel">
+            <div class="time-player">
+                <button class="play-btn" id="playBtn">▶</button>
+                <div class="time-slider" id="timeSlider">
+                    <div class="time-progress" id="timeProgress"></div>
+                </div>
+                <span id="currentTime">12:00:00</span>
+            </div>
+            
+            <div class="chat-input-container">
+                <input type="text" class="chat-input" id="chatInput" placeholder="Type your trading command... (e.g., 'buy 5 dollars ETH')">
+                <button class="send-btn" id="sendBtn">Send</button>
+            </div>
+        </div>
+    </div>
+
+    <!-- API Configuration Panel -->
+    <div class="api-config" id="apiConfig">
+        <h3 style="margin-bottom: 15px; color: #00ff88;">API Configuration</h3>
+        <input type="text" class="api-input" id="apiKey" placeholder="API Key">
+        <input type="text" class="api-input" id="apiSecret" placeholder="API Secret">
+        <select class="api-input" id="exchangeSelect">
+            <option value="binance">Binance</option>
+            <option value="coinbase">Coinbase Pro</option>
+            <option value="kraken">Kraken</option>
+            <option value="bitfinex">Bitfinex</option>
+        </select>
+        <button class="config-btn" id="connectBtn">Connect</button>
+        <button class="config-btn" id="hideConfigBtn" style="background: #666; margin-left: 10px;">Hide</button>
+    </div>
+
+    <script>
+        // Global variables
+        let exchange = null;
+        let chartData = [];
+        let tradeHistory = [];
+        let chatHistory = [];
+        let currentTimeIndex = 0;
+        let isPlaying = false;
+        let playInterval = null;
+        let chart = null;
+
+        // Initialize the application
+        document.addEventListener('DOMContentLoaded', function() {
+            initializeChart();
+            setupEventListeners();
+            generateMockData();
+            updateDisplay();
+        });
+
+        function initializeChart() {
+            const ctx = document.getElementById('tradingChart').getContext('2d');
+            chart = new Chart(ctx, {
+                type: 'line',
+                data: {
+                    labels: [],
+                    datasets: [{
+                        label: 'ETH/USD',
+                        data: [],
+                        borderColor: '#00ff88',
+                        backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                        borderWidth: 2,
+                        fill: true,
+                        tension: 0.1
+                    }]
+                },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    plugins: {
+                        legend: {
+                            display: false
+                        }
+                    },
+                    scales: {
+                        x: {
+                            grid: {
+                                color: '#333'
+                            },
+                            ticks: {
+                                color: '#888'
+                            }
+                        },
+                        y: {
+                            grid: {
+                                color: '#333'
+                            },
+                            ticks: {
+                                color: '#888'
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function setupEventListeners() {
+            // Chat input
+            document.getElementById('chatInput').addEventListener('keypress', function(e) {
+                if (e.key === 'Enter') {
+                    sendMessage();
+                }
+            });
+
+            document.getElementById('sendBtn').addEventListener('click', sendMessage);
+
+            // Time player
+            document.getElementById('playBtn').addEventListener('click', togglePlayback);
+            document.getElementById('timeSlider').addEventListener('click', seekToTime);
+
+            // API configuration
+            document.getElementById('connectBtn').addEventListener('click', connectToExchange);
+            document.getElementById('hideConfigBtn').addEventListener('click', function() {
+                document.getElementById('apiConfig').style.display = 'none';
+            });
+
+            // Time frame buttons
+            document.querySelectorAll('.time-btn').forEach(btn => {
+                btn.addEventListener('click', function() {
+                    document.querySelectorAll('.time-btn').forEach(b => b.classList.remove('active'));
+                    this.classList.add('active');
+                    // Here you would typically reload chart data for the new timeframe
+                });
+            });
+        }
+
+        function generateMockData() {
+            // Generate mock price data
+            let basePrice = 2500;
+            const now = new Date();
+            
+            for (let i = 0; i < 100; i++) {
+                const time = new Date(now.getTime() - (100 - i) * 60000); // 1 minute intervals
+                basePrice += (Math.random() - 0.5) * 50;
+                chartData.push({
+                    time: time,
+                    price: basePrice,
+                    timestamp: time.getTime()
+                });
+            }
+
+            // Generate mock trade history
+            tradeHistory = [
+                {
+                    time: new Date(now.getTime() - 300000),
+                    action: 'BUY',
+                    amount: '0.002 ETH',
+                    price: '$2,485.50',
+                    total: '$5.00',
+                    status: 'Completed'
+                },
+                {
+                    time: new Date(now.getTime() - 180000),
+                    action: 'SELL',
+                    amount: '0.001 ETH',
+                    price: '$2,510.25',
+                    total: '$2.51',
+                    status: 'Completed'
+                }
+            ];
+
+            // Generate mock chat history
+            chatHistory = [
+                {
+                    time: new Date(now.getTime() - 400000),
+                    type: 'agent',
+                    message: 'Hello! I\'m your trading agent. Ready to help you trade.'
+                },
+                {
+                    time: new Date(now.getTime() - 300000),
+                    type: 'user',
+                    message: 'buy 5 dollars ETH'
+                },
+                {
+                    time: new Date(now.getTime() - 299000),
+                    type: 'agent',
+                    message: 'Executing buy order for $5 worth of ETH at current market price...'
+                },
+                {
+                    time: new Date(now.getTime() - 298000),
+                    type: 'agent',
+                    message: '✅ Order completed! Bought 0.002 ETH for $5.00'
+                }
+            ];
+
+            updateChart();
+            updateHistory();
+            updateChat();
+        }
+
+        function updateChart() {
+            const labels = chartData.map(d => d.time.toLocaleTimeString());
+            const prices = chartData.map(d => d.price);
+            
+            chart.data.labels = labels;
+            chart.data.datasets[0].data = prices;
+            chart.update();
+        }
+
+        function updateHistory() {
+            const container = document.getElementById('historyContainer');
+            container.innerHTML = '';
+            
+            tradeHistory.forEach(trade => {
+                const item = document.createElement('div');
+                item.className = 'history-item';
+                item.innerHTML = `
+                    <div class="history-time">${trade.time.toLocaleTimeString()}</div>
+                    <div class="history-action">
+                        <strong>${trade.action}</strong> ${trade.amount} at ${trade.price}
+                        <br><small>Total: ${trade.total} • ${trade.status}</small>
+                    </div>
+                `;
+                container.appendChild(item);
+            });
+        }
+
+        function updateChat() {
+            const container = document.getElementById('chatContainer');
+            container.innerHTML = '';
+            
+            chatHistory.forEach(msg => {
+                const item = document.createElement('div');
+                item.className = `agent-message ${msg.type}`;
+                item.innerHTML = `
+                    <div class="message-time">${msg.time.toLocaleTimeString()}</div>
+                    <div class="message-content">${msg.message}</div>
+                `;
+                container.appendChild(item);
+            });
+            
+            container.scrollTop = container.scrollHeight;
+        }
+
+        function updateDisplay() {
+            // Update balance (mock data)
+            document.getElementById('totalBalance').textContent = '$1,247.83';
+            document.getElementById('availableBalance').textContent = '$1,242.83';
+            document.getElementById('inOrders').textContent = '$5.00';
+            document.getElementById('pnlToday').textContent = '+$12.45';
+            
+            // Update current time
+            document.getElementById('currentTime').textContent = new Date().toLocaleTimeString();
+        }
+
+        function sendMessage() {
+            const input = document.getElementById('chatInput');
+            const message = input.value.trim();
+            
+            if (!message) return;
+            
+            // Add user message
+            const now = new Date();
+            chatHistory.push({
+                time: now,
+                type: 'user',
+                message: message
+            });
+            
+            // Process the command
+            processTradeCommand(message);
+            
+            input.value = '';
+            updateChat();
+        }
+
+        function processTradeCommand(command) {
+            const now = new Date();
+            
+            // Simple command parsing
+            const buyMatch = command.match(/buy\s+(\d+)\s+dollars?\s+(\w+)/i);
+            const sellMatch = command.match(/sell\s+(\d+)\s+dollars?\s+(\w+)/i);
+            
+            if (buyMatch) {
+                const amount = buyMatch[1];
+                const symbol = buyMatch[2].toUpperCase();
+                
+                // Add agent response
+                setTimeout(() => {
+                    chatHistory.push({
+                        time: new Date(),
+                        type: 'agent',
+                        message: `🔄 Executing buy order for $${amount} worth of ${symbol}...`
+                    });
+                    updateChat();
+                    
+                    // Simulate order execution
+                    setTimeout(() => {
+                        const ethAmount = (parseFloat(amount) / 2500).toFixed(6);
+                        chatHistory.push({
+                            time: new Date(),
+                            type: 'agent',
+                            message: `✅ Order completed! Bought ${ethAmount} ${symbol} for $${amount}`
+                        });
+                        
+                        // Add to trade history
+                        tradeHistory.unshift({
+                            time: new Date(),
+                            action: 'BUY',
+                            amount: `${ethAmount} ${symbol}`,
+                            price: '$2,500.00',
+                            total: `$${amount}`,
+                            status: 'Completed'
+                        });
+                        
+                        updateChat();
+                        updateHistory();
+                        updateDisplay();
+                    }, 2000);
+                }, 500);
+                
+            } else if (sellMatch) {
+                const amount = sellMatch[1];
+                const symbol = sellMatch[2].toUpperCase();
+                
+                setTimeout(() => {
+                    chatHistory.push({
+                        time: new Date(),
+                        type: 'agent',
+                        message: `🔄 Executing sell order for $${amount} worth of ${symbol}...`
+                    });
+                    updateChat();
+                    
+                    setTimeout(() => {
+                        const ethAmount = (parseFloat(amount) / 2500).toFixed(6);
+                        chatHistory.push({
+                            time: new Date(),
+                            type: 'agent',
+                            message: `✅ Order completed! Sold ${ethAmount} ${symbol} for $${amount}`
+                        });
+                        
+                        tradeHistory.unshift({
+                            time: new Date(),
+                            action: 'SELL',
+                            amount: `${ethAmount} ${symbol}`,
+                            price: '$2,500.00',
+                            total: `$${amount}`,
+                            status: 'Completed'
+                        });
+                        
+                        updateChat();
+                        updateHistory();
+                        updateDisplay();
+                    }, 2000);
+                }, 500);
+                
+            } else {
+                // Default response for unrecognized commands
+                setTimeout(() => {
+                    chatHistory.push({
+                        time: new Date(),
+                        type: 'agent',
+                        message: `I didn't understand that command. Try "buy 5 dollars ETH" or "sell 10 dollars BTC"`
+                    });
+                    updateChat();
+                }, 500);
+            }
+        }
+
+        function togglePlayback() {
+            const btn = document.getElementById('playBtn');
+            
+            if (isPlaying) {
+                isPlaying = false;
+                btn.textContent = '▶';
+                clearInterval(playInterval);
+            } else {
+                isPlaying = true;
+                btn.textContent = '⏸';
+                playInterval = setInterval(advanceTime, 1000);
+            }
+        }
+
+        function advanceTime() {
+            currentTimeIndex = Math.min(currentTimeIndex + 1, chartData.length - 1);
+            updateTimeProgress();
+        }
+
+        function seekToTime(e) {
+            const rect = e.target.getBoundingClientRect();
+            const x = e.clientX - rect.left;
+            const percentage = x / rect.width;
+            currentTimeIndex = Math.floor(percentage * (chartData.length - 1));
+            updateTimeProgress();
+        }
+
+        function updateTimeProgress() {
+            const progress = (currentTimeIndex / (chartData.length - 1)) * 100;
+            document.getElementById('timeProgress').style.width = progress + '%';
+            
+            if (chartData[currentTimeIndex]) {
+                document.getElementById('currentTime').textContent = 
+                    chartData[currentTimeIndex].time.toLocaleTimeString();
+            }
+        }
+
+        async function connectToExchange() {
+            const apiKey = document.getElementById('apiKey').value;
+            const apiSecret = document.getElementById('apiSecret').value;
+            const exchangeName = document.getElementById('exchangeSelect').value;
+            
+            if (!apiKey || !apiSecret) {
+                alert('Please enter both API key and secret');
+                return;
+            }
+            
+            try {
+                // Initialize CCXT exchange (this is a mock implementation)
+                // In a real application, you would handle this more securely
+                console.log(`Connecting to ${exchangeName} with provided credentials...`);
+                
+                // Update connection status
+                document.getElementById('connectionStatus').classList.remove('disconnected');
+                document.getElementById('connectionText').textContent = `Connected to ${exchangeName}`;
+                
+                // Hide config panel
+                document.getElementById('apiConfig').style.display = 'none';
+                
+                alert('Connected successfully! (Mock connection)');
+                
+            } catch (error) {
+                console.error('Connection failed:', error);
+                document.getElementById('connectionStatus').classList.add('disconnected');
+                document.getElementById('connectionText').textContent = 'Connection failed';
+                alert('Connection failed: ' + error.message);
+            }
+        }
+
+        // Update display every second
+        setInterval(updateDisplay, 1000);
+        
+        // Generate new price data every 5 seconds (mock real-time data)
+        setInterval(() => {
+            if (chartData.length > 0) {
+                const lastPrice = chartData[chartData.length - 1].price;
+                const newPrice = lastPrice + (Math.random() - 0.5) * 20;
+                const now = new Date();
+                
+                chartData.push({
+                    time: now,
+                    price: newPrice,
+                    timestamp: now.getTime()
+                });
+                
+                // Keep only last 100 data points
+                if (chartData.length > 100) {
+                    chartData.shift();
+                }
+                
+                updateChart();
+            }
+        }, 5000);
+    </script>
+</body>
+</html>

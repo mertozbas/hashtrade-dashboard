@@ -1,0 +1,2 @@
+devduck
+websockets>=12.0

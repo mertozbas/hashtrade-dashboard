@@ -1,0 +1,443 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Trading Agent Dashboard</title>
+
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/styles/github-dark.min.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.9.0/highlight.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
+
+  <style>
+    :root{--bg:#0b1220;--panel:#0f1a2e;--panel2:#0c1629;--text:#e7eefc;--muted:#9bb0d1;--line:#203152;--accent:#6aa6ff;--good:#2ee59d;--bad:#ff5c7a;--warn:#ffd36a;--shadow:0 8px 30px rgba(0,0,0,.35);--radius:14px;--mono:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace;--sans:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial}
+    *{box-sizing:border-box}html,body{height:100%}
+    body{margin:0;font-family:var(--sans);color:var(--text);background:radial-gradient(1200px 600px at 20% 0%, rgba(106,166,255,.18), transparent 60%),radial-gradient(900px 500px at 100% 20%, rgba(46,229,157,.10), transparent 60%),var(--bg);overflow:hidden}
+    .app{height:100%;display:grid;grid-template-columns:520px 1fr 420px;grid-template-rows:64px 1fr 86px;gap:12px;padding:12px}
+    header,footer{border:1px solid var(--line);background:linear-gradient(180deg, rgba(255,255,255,.03), rgba(255,255,255,.01));border-radius:var(--radius);box-shadow:var(--shadow)}
+    header{grid-column:1/4;display:flex;align-items:center;justify-content:space-between;padding:10px 12px}
+    footer{grid-column:1/4;display:flex;gap:12px;align-items:center;padding:10px 12px}
+    .brand{display:flex;gap:10px;align-items:center}.logo{width:34px;height:34px;border-radius:10px;background:conic-gradient(from 180deg,var(--accent),rgba(46,229,157,.9),rgba(255,92,122,.9),var(--accent))}
+    .brand h1{font-size:14px;margin:0}.sub{font-size:12px;color:var(--muted)}
+    .top{display:flex;gap:10px;align-items:center;padding:8px 10px;border:1px solid var(--line);background:rgba(255,255,255,.02);border-radius:12px}
+    .pill{font-family:var(--mono);font-size:12px;color:var(--muted)}
+    .balance{font-family:var(--mono);font-size:14px}
+    .panel{border:1px solid var(--line);background:linear-gradient(180deg, rgba(255,255,255,.02), rgba(255,255,255,.01));border-radius:var(--radius);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;min-height:0}
+    .hd{display:flex;align-items:center;justify-content:space-between;padding:10px 12px;border-bottom:1px solid var(--line);background:rgba(0,0,0,.12)}
+    .bd{padding:12px;overflow:auto;min-height:0}
+
+    .chat{display:flex;flex-direction:column;gap:10px}
+    .turn{border:1px solid rgba(32,49,82,.9);background:rgba(15,26,46,.55);border-radius:12px;overflow:hidden}
+    .msgRow{padding:10px 12px;border-bottom:1px solid rgba(32,49,82,.7)}
+    .msgRow.user{background:rgba(106,166,255,.10)}
+    .msgRow.assistant{background:rgba(0,0,0,.12)}
+    .msgRow pre{background:#0a0f1c;padding:10px;border-radius:10px;overflow:auto}
+    .msgRow code{font-family:var(--mono);font-size:12px}
+    .ts{font-family:var(--mono);font-size:11px;color:var(--muted)}
+    .tool-status{display:inline-flex;align-items:center;gap:8px;padding:6px 10px;margin:8px 0;border:1px solid rgba(32,49,82,.9);border-radius:999px;background:rgba(255,255,255,.03);font-size:12px;color:var(--muted)}
+    .tool-status.success{color:var(--good);border-color:rgba(46,229,157,.35)}
+    .tool-status.error{color:var(--bad);border-color:rgba(255,92,122,.35)}
+    .loading-cursor{display:inline-block;width:2px;height:1rem;background:#fff;margin-left:6px;animation:blink 1s infinite}
+    @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+
+    .timeline{display:flex;flex-direction:column;gap:10px}
+    .event{border:1px solid rgba(32,49,82,.9);background:rgba(15,26,46,.7);border-radius:12px;padding:10px}
+    .row{display:flex;justify-content:space-between;gap:10px}
+    .msg{margin-top:6px;font-size:13px;line-height:1.35;white-space:pre-wrap;word-break:break-word}
+
+    .controls{display:flex;align-items:center;gap:10px}
+    .btn{border:1px solid var(--line);background:rgba(255,255,255,.03);color:var(--text);padding:8px 10px;border-radius:12px;cursor:pointer;font-size:12px}
+    .btn.primary{border-color:rgba(106,166,255,.55);background:rgba(106,166,255,.12)}
+    .sliderWrap{display:flex;align-items:center;gap:10px;flex:1}
+    input[type=range]{width:100%}
+    .timeReadout{font-family:var(--mono);font-size:12px;color:var(--muted);min-width:260px;text-align:right}
+    .chatInputWrap{display:flex;align-items:center;gap:10px;flex:1.2}
+    .chatInput{flex:1;background:rgba(0,0,0,.18);border:1px solid var(--line);border-radius:12px;padding:10px 12px;color:var(--text);font-size:13px;outline:none}
+    .chatInput:focus{border-color:rgba(106,166,255,.55)}
+
+    /* chart */
+    .chartWrap{height:100%;display:flex;flex-direction:column;gap:10px}
+    .canvasWrap{flex:1;border:1px solid var(--line);background:var(--panel2);border-radius:12px;overflow:hidden;position:relative}
+    canvas{display:block;width:100%;height:100%}
+    .legend{display:flex;gap:10px;flex-wrap:wrap;font-size:12px;color:var(--muted)}
+    .dot{width:8px;height:8px;border-radius:99px;display:inline-block;margin-right:6px}
+
+    @media (max-width:1200px){body{overflow:auto}.app{height:auto;grid-template-columns:1fr;grid-template-rows:auto}header,footer{grid-column:1}}
+  </style>
+</head>
+<body>
+  <div class="app">
+    <header>
+      <div class="brand"><div class="logo"></div><div><h1>Trading Agent Dashboard <span class="sub">(WS streaming)</span></h1><div class="sub" id="conn">disconnected</div></div></div>
+      <div class="top">
+        <div><div class="pill">BALANCE</div><div class="balance"><span id="balUsd">$0.00</span> <span class="pill">USD</span></div></div>
+        <div><div class="pill">USDT</div><div class="balance"><span id="balUsdt">0.00</span></div></div>
+        <div><div class="pill">SYMBOL</div><div class="balance" id="sym">BTC/USDT</div></div>
+      </div>
+    </header>
+
+    <section class="panel" style="grid-column:1;grid-row:2;">
+      <div class="hd"><div>Market Graph</div><div class="ts" id="chartMeta">waiting...</div></div>
+      <div class="bd" style="height:100%">
+        <div class="chartWrap">
+          <div class="legend">
+            <span><span class="dot" style="background:var(--accent)"></span>close</span>
+            <span><span class="dot" style="background:var(--good)"></span>buy</span>
+            <span><span class="dot" style="background:var(--bad)"></span>sell</span>
+          </div>
+          <div class="canvasWrap"><canvas id="chart"></canvas></div>
+          <div class="sub">Chart updates via UI action: fetch_ohlcv (server calls ccxt_generic).</div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel" style="grid-column:2;grid-row:2;">
+      <div class="hd"><div>History of Actions</div><div class="ts">events: <span id="eventCount">0</span></div></div>
+      <div class="bd"><div class="timeline" id="timeline"></div></div>
+    </section>
+
+    <section class="panel" style="grid-column:3;grid-row:2;">
+      <div class="hd"><div>Agent Screen</div><div class="ts">turns: <span id="turnCount">0</span></div></div>
+      <div class="bd"><div class="chat" id="chat"></div></div>
+    </section>
+
+    <footer>
+      <div class="controls">
+        <button class="btn" id="btnConnect">Connect</button>
+        <button class="btn" id="btnPrev">⟵</button>
+        <button class="btn primary" id="btnPlay">Play</button>
+        <button class="btn" id="btnNext">⟶</button>
+        <button class="btn" id="btnRefresh">Refresh Chart</button>
+      </div>
+      <div class="sliderWrap">
+        <input type="range" id="timeSlider" min="0" max="0" step="1" value="0" />
+        <div class="timeReadout" id="timeReadout">t=0</div>
+      </div>
+      <div class="chatInputWrap">
+        <input class="chatInput" id="chatInput" placeholder='Send message to agent (e.g. "5 dollars eth")' />
+        <button class="btn primary" id="btnSend">Send</button>
+      </div>
+    </footer>
+  </div>
+
+<script>
+  // Render logic:
+  // - WebSocket stream parsing MUST be turn-based (like example-web.html)
+  // - Time travel uses a separate event log; turns also derive from the same stream.
+
+  marked.setOptions({
+    highlight: (code, lang) => {
+      try{
+        if (lang && hljs.getLanguage(lang)) return hljs.highlight(code, {language: lang}).value;
+        return hljs.highlightAuto(code).value;
+      } catch { return code; }
+    },
+    breaks: true,
+    gfm: true
+  });
+
+  const state = {
+    playing:false, playTimer:null, nowIndex:0,
+    events:[], snaps:[],
+    chart: { symbol:'BTC/USDT', tf:'1m', ohlcv:[] },
+  };
+
+  let ws = null;
+
+  // Turn-based UI (like /Users/macmert/test/example-web.html)
+  const turns = new Map(); // turnId -> {root, userEl, assistantEl, contentEl, cursorEl, text, tools:[]}
+
+  function isoNow(){ return new Date().toISOString(); }
+
+  function addEvent(type, message, data){
+    state.events.push({ts: isoNow(), type, message, data});
+    buildSnaps();
+    setIndex(state.events.length-1);
+  }
+
+  function buildSnaps(){
+    const snaps=[];
+    let bal=null;
+    let chart=null;
+    for(let i=0;i<state.events.length;i++){
+      const e=state.events[i];
+      if(e.type==='balance') bal=e.data;
+      if(e.type==='ohlcv') chart=e.data;
+      snaps.push({i, ts:e.ts, bal, chart, events: state.events.slice(0,i+1)});
+    }
+    state.snaps=snaps;
+    document.getElementById('timeSlider').max=String(Math.max(0, snaps.length-1));
+  }
+
+  function setIndex(i){
+    state.nowIndex=Math.max(0, Math.min(i, state.snaps.length-1));
+    document.getElementById('timeSlider').value=String(state.nowIndex);
+    render();
+  }
+
+  function render(){
+    const snap = state.snaps[state.nowIndex] || {events:[], bal:null, chart:null, ts:''};
+    document.getElementById('eventCount').textContent=String(snap.events.length);
+    document.getElementById('timeReadout').textContent = snap.ts ? `index ${state.nowIndex}/${Math.max(0,state.snaps.length-1)} • ${snap.ts}` : 't=0';
+
+    // balance (best-effort parse)
+    if (snap.bal){
+      const t = (snap.bal.content?.[0]?.text ?? JSON.stringify(snap.bal)).toString();
+      const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
+      document.getElementById('balUsd').textContent = '$' + usd;
+      document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
+    }
+
+    // timeline
+    const tl=document.getElementById('timeline'); tl.innerHTML='';
+    for(const e of snap.events){
+      const d=document.createElement('div'); d.className='event';
+      d.innerHTML = `<div class="row"><div class="ts">${escapeHtml(e.type)}</div><div class="ts">${escapeHtml(e.ts)}</div></div><div class="msg">${escapeHtml(e.message)}</div>`;
+      tl.appendChild(d);
+    }
+
+    // chart
+    if (snap.chart){
+      state.chart = snap.chart;
+      document.getElementById('sym').textContent = snap.chart.symbol;
+      document.getElementById('chartMeta').textContent = `${snap.chart.symbol} • ${snap.chart.timeframe} • points ${snap.chart.ohlcv.length}`;
+      drawChart(snap.chart.ohlcv);
+    } else {
+      drawChart([]);
+    }
+  }
+
+  function escapeHtml(s){
+    return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  }
+
+  // --- Turn rendering (stream parsing correctness) ---
+  function createTurn(turnId, userMessage){
+    const root=document.createElement('div');
+    root.className='turn';
+    root.dataset.turnId=turnId;
+
+    const user=document.createElement('div');
+    user.className='msgRow user';
+    user.innerHTML = `<div class="ts">${escapeHtml(isoNow())}</div><div class="msg">${escapeHtml(userMessage)}</div>`;
+
+    const assistant=document.createElement('div');
+    assistant.className='msgRow assistant';
+
+    const content=document.createElement('div');
+    content.className='msg';
+    content.style.whiteSpace='normal';
+
+    const cursor=document.createElement('span');
+    cursor.className='loading-cursor';
+
+    assistant.appendChild(content);
+    assistant.appendChild(cursor);
+
+    root.appendChild(user);
+    root.appendChild(assistant);
+
+    const chat=document.getElementById('chat');
+    chat.appendChild(root);
+    chat.scrollTop=chat.scrollHeight;
+
+    turns.set(turnId, {root, userEl:user, assistantEl:assistant, contentEl:content, cursorEl:cursor, text:'', tools:[]});
+    document.getElementById('turnCount').textContent = String(turns.size);
+    return turns.get(turnId);
+  }
+
+  function updateTurnContent(turnId, delta){
+    const turn=turns.get(turnId);
+    if(!turn) return;
+    turn.text += (delta || '');
+
+    const html = marked.parse(turn.text);
+    turn.contentEl.innerHTML = html;
+    turn.contentEl.querySelectorAll('pre code').forEach((block)=>hljs.highlightElement(block));
+
+    turn.assistantEl.scrollIntoView({block:'end'});
+    const chat=document.getElementById('chat');
+    chat.scrollTop=chat.scrollHeight;
+  }
+
+  function addToolStatus(turnId, toolName, toolNumber){
+    const turn=turns.get(turnId);
+    if(!turn) return;
+    const tool=document.createElement('div');
+    tool.className='tool-status';
+    tool.textContent = `Tool #${toolNumber}: ${toolName}`;
+    // insert before content
+    turn.assistantEl.insertBefore(tool, turn.contentEl);
+    turn.tools.push(tool);
+  }
+
+  function updateToolStatus(turnId, success){
+    const turn=turns.get(turnId);
+    if(!turn || !turn.tools.length) return;
+    const last=turn.tools[turn.tools.length-1];
+    last.className = 'tool-status ' + (success ? 'success' : 'error');
+    last.textContent = last.textContent + (success ? ' ✓' : ' ✗');
+  }
+
+  function finalizeTurn(turnId){
+    const turn=turns.get(turnId);
+    if(!turn) return;
+    if(turn.cursorEl && turn.cursorEl.parentNode) turn.cursorEl.remove();
+  }
+
+  // --- WS ---
+  function connect(){
+    if (ws && ws.readyState===1) return;
+    ws = new WebSocket('ws://127.0.0.1:8090');
+    document.getElementById('conn').textContent='connecting...';
+
+    ws.onopen=()=>{
+      document.getElementById('conn').textContent='connected';
+      addEvent('system','connected',{});
+      requestChart();
+    };
+
+    ws.onclose=()=>{
+      document.getElementById('conn').textContent='disconnected';
+      addEvent('system','disconnected',{});
+    };
+
+    ws.onerror=(e)=>{
+      addEvent('system','ws error',String(e));
+    };
+
+    ws.onmessage=(ev)=>{
+      let msg=null;
+      try{ msg=JSON.parse(ev.data); }catch{ msg={type:'raw', data:ev.data}; }
+      const t=msg.type;
+
+      // keep time-travel log
+      if (t==='turn_start') addEvent('turn_start', msg.data || '', msg);
+      if (t==='chunk') addEvent('chunk', msg.data || '', msg);
+      if (t==='tool_start') addEvent('tool_start', msg.data || '', msg);
+      if (t==='tool_end') addEvent('tool_end', msg.data || '', msg);
+      if (t==='balance') addEvent('balance', 'balance snapshot', msg.data);
+      if (t==='ohlcv') addEvent('ohlcv', 'ohlcv update', msg.data);
+      if (t==='error') addEvent('error', msg.data || 'error', msg);
+
+      // correct streaming UI rendering (turn-based)
+      switch(t){
+        case 'connected':
+          return;
+        case 'turn_start':
+          createTurn(msg.turn_id, msg.data || '');
+          break;
+        case 'chunk':
+          updateTurnContent(msg.turn_id, msg.data || '');
+          break;
+        case 'tool_start':
+          addToolStatus(msg.turn_id, msg.data || 'tool', msg.tool_number || 1);
+          break;
+        case 'tool_end':
+          updateToolStatus(msg.turn_id, !!msg.success);
+          break;
+        case 'turn_end':
+          finalizeTurn(msg.turn_id);
+          break;
+        case 'error':
+          if (msg.turn_id) finalizeTurn(msg.turn_id);
+          break;
+      }
+    };
+  }
+
+  function send(){
+    const input=document.getElementById('chatInput');
+    const text=input.value.trim();
+    if(!text) return;
+    input.value='';
+    addEvent('user', text, {});
+    ws?.send(text);
+  }
+
+  function requestChart(){
+    const req = {type:'ui', action:'fetch_ohlcv', symbol: state.chart.symbol, timeframe: state.chart.tf, limit: 240};
+    ws?.send(JSON.stringify(req));
+  }
+
+  function togglePlay(){
+    state.playing=!state.playing;
+    document.getElementById('btnPlay').textContent = state.playing ? 'Pause' : 'Play';
+    if(state.playing){
+      state.playTimer=setInterval(()=>{
+        if(!state.snaps.length) return;
+        if(state.nowIndex>=state.snaps.length-1){state.playing=false;document.getElementById('btnPlay').textContent='Play';clearInterval(state.playTimer);return;}
+        setIndex(state.nowIndex+1);
+      }, 250);
+    } else {
+      clearInterval(state.playTimer);
+    }
+  }
+
+  // Simple OHLCV close line chart
+  function drawChart(ohlcv){
+    const canvas = document.getElementById('chart');
+    const wrap = canvas.parentElement;
+    const dpr = Math.max(1, window.devicePixelRatio || 1);
+    const w = wrap.clientWidth, h = wrap.clientHeight;
+    canvas.width = Math.floor(w*dpr);
+    canvas.height = Math.floor(h*dpr);
+    const ctx = canvas.getContext('2d');
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+
+    ctx.clearRect(0,0,w,h);
+    ctx.fillStyle='rgba(0,0,0,0.12)';
+    ctx.fillRect(0,0,w,h);
+
+    ctx.strokeStyle='rgba(32,49,82,0.7)';
+    ctx.lineWidth=1;
+    for(let i=0;i<=6;i++){ const y=(h/6)*i; ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
+    for(let i=0;i<=8;i++){ const x=(w/8)*i; ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
+
+    if(!ohlcv || !ohlcv.length){
+      ctx.fillStyle='rgba(231,238,252,0.7)';
+      ctx.font='12px '+getComputedStyle(document.body).fontFamily;
+      ctx.fillText('No OHLCV yet. Click Refresh Chart.', 12, 18);
+      return;
+    }
+
+    const xs = ohlcv.map(r => r[0]);
+    const closes = ohlcv.map(r => r[4]);
+    const minY = Math.min(...closes);
+    const maxY = Math.max(...closes);
+    const pad = (maxY-minY)*0.1 || 1;
+    const lo=minY-pad, hi=maxY+pad;
+
+    const x0=xs[0], x1=xs[xs.length-1];
+    const xScale=(t)=> ((t-x0)/(x1-x0))*(w-20)+10;
+    const yScale=(v)=> h-(((v-lo)/(hi-lo))*(h-20)+10);
+
+    ctx.strokeStyle='rgba(106,166,255,0.95)';
+    ctx.lineWidth=2;
+    ctx.beginPath();
+    for(let i=0;i<xs.length;i++){
+      const x=xScale(xs[i]);
+      const y=yScale(closes[i]);
+      if(i===0) ctx.moveTo(x,y); else ctx.lineTo(x,y);
+    }
+    ctx.stroke();
+
+    ctx.fillStyle='rgba(231,238,252,0.9)';
+    ctx.font='12px '+getComputedStyle(document.body).fontFamily;
+    ctx.fillText(`Last close: ${closes[closes.length-1].toFixed(2)}`, 12, 18);
+  }
+
+  document.getElementById('btnConnect').onclick=connect;
+  document.getElementById('btnSend').onclick=send;
+  document.getElementById('chatInput').addEventListener('keydown', e=>{ if(e.key==='Enter') send(); });
+  document.getElementById('btnPrev').onclick=()=>setIndex(state.nowIndex-1);
+  document.getElementById('btnNext').onclick=()=>setIndex(state.nowIndex+1);
+  document.getElementById('btnPlay').onclick=togglePlay;
+  document.getElementById('btnRefresh').onclick=requestChart;
+  document.getElementById('timeSlider').addEventListener('input', (e)=>setIndex(parseInt(e.target.value||'0',10)));
+
+  // auto connect
+  connect();
+</script>
+</body>
+</html>

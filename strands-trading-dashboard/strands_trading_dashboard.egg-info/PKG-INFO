@@ -1,0 +1,7 @@
+Metadata-Version: 2.4
+Name: strands-trading-dashboard
+Version: 0.1.0
+Summary: Trading dashboard + DevDuck agent streaming
+Requires-Python: >=3.11
+Requires-Dist: devduck
+Requires-Dist: websockets>=12.0
