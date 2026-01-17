@@ -345,57 +345,66 @@ async def handle_client(websocket):
         "apiSecret": ""
     }
 
-    await websocket.send(StreamMsg("connected", "", time.time(), "connected").dumps())
-
-    # send recent history (best-effort)
-    try:
-        if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
-            tail = agent.tool.history(action="tail", limit=200, record_direct_tool_call=False)
-            items = tail.get("items") or []
-            await websocket.send(StreamMsg("history_sync", "", time.time(), items).dumps())
-    except Exception:
-        pass
-
     active = set()
-    async for raw in websocket:
-        raw = (raw or "").strip()
-        if not raw:
-            continue
 
-        if raw.startswith("{"):
-            try:
-                payload = json.loads(raw)
+    try:
+        await websocket.send(StreamMsg("connected", "", time.time(), "connected").dumps())
 
-                # Handle credentials update from UI
-                if isinstance(payload, dict) and payload.get("type") == "credentials":
-                    client_creds["exchange"] = payload.get("exchange") or client_creds["exchange"]
-                    client_creds["apiKey"] = payload.get("apiKey") or ""
-                    client_creds["apiSecret"] = payload.get("apiSecret") or ""
-                    await websocket.send(StreamMsg("credentials_updated", "", time.time(), {"exchange": client_creds["exchange"]}).dumps())
-                    continue
+        # send recent history (best-effort)
+        try:
+            if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
+                tail = agent.tool.history(action="tail", limit=200, record_direct_tool_call=False)
+                items = tail.get("items") or []
+                await websocket.send(StreamMsg("history_sync", "", time.time(), items).dumps())
+        except Exception:
+            pass
 
-                if isinstance(payload, dict) and payload.get("type") == "ui":
-                    await _handle_ui_action(agent, websocket, payload, client_creds)
-                    continue
-                if isinstance(payload, dict) and payload.get("type") == "history" and payload.get("action") == "clear":
-                    if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
-                        agent.tool.history(action="clear", record_direct_tool_call=False)
-                        await websocket.send(StreamMsg("history_cleared", "", time.time(), "cleared").dumps())
-                    continue
-            except Exception:
-                pass
+        async for raw in websocket:
+            raw = (raw or "").strip()
+            if not raw:
+                continue
 
-        if raw.lower() == "exit":
-            await websocket.send(StreamMsg("disconnected", "", time.time(), "bye").dumps())
-            break
+            if raw.startswith("{"):
+                try:
+                    payload = json.loads(raw)
 
-        turn_id = str(uuid.uuid4())
-        task = asyncio.create_task(run_turn(agent, websocket, loop, raw, turn_id))
-        active.add(task)
-        task.add_done_callback(active.discard)
+                    # Handle credentials update from UI
+                    if isinstance(payload, dict) and payload.get("type") == "credentials":
+                        client_creds["exchange"] = payload.get("exchange") or client_creds["exchange"]
+                        client_creds["apiKey"] = payload.get("apiKey") or ""
+                        client_creds["apiSecret"] = payload.get("apiSecret") or ""
+                        await websocket.send(StreamMsg("credentials_updated", "", time.time(), {"exchange": client_creds["exchange"]}).dumps())
+                        continue
 
-    if active:
-        await asyncio.gather(*active, return_exceptions=True)
+                    if isinstance(payload, dict) and payload.get("type") == "ui":
+                        await _handle_ui_action(agent, websocket, payload, client_creds)
+                        continue
+                    if isinstance(payload, dict) and payload.get("type") == "history" and payload.get("action") == "clear":
+                        if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
+                            agent.tool.history(action="clear", record_direct_tool_call=False)
+                            await websocket.send(StreamMsg("history_cleared", "", time.time(), "cleared").dumps())
+                        continue
+                except Exception:
+                    pass
+
+            if raw.lower() == "exit":
+                await websocket.send(StreamMsg("disconnected", "", time.time(), "bye").dumps())
+                break
+
+            turn_id = str(uuid.uuid4())
+            task = asyncio.create_task(run_turn(agent, websocket, loop, raw, turn_id))
+            active.add(task)
+            task.add_done_callback(active.discard)
+
+    except Exception:
+        # Client disconnected (BrokenPipe, ConnectionClosed, etc.) - this is normal
+        pass
+    finally:
+        # Cancel and wait for any remaining tasks
+        for task in active:
+            task.cancel()
+        if active:
+            await asyncio.gather(*active, return_exceptions=True)
 
 
 async def amain():

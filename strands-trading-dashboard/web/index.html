@@ -626,6 +626,8 @@
         addHistoryItem(msg.data);
         // Add to stream events so time travel works
         addStreamEvent(t, msg);
+        // Auto-switch chart if trade event contains a symbol
+        checkAndSwitchChartSymbol(msg.data);
         return;
       }
       if(t==='history_cleared'){
@@ -700,6 +702,52 @@
       apiSecret: state.settings.apiSecret
     };
     ws?.send(JSON.stringify(req));
+  }
+
+  // Auto-switch chart when a trade event with different symbol is detected
+  function checkAndSwitchChartSymbol(historyData){
+    if (!historyData) return;
+
+    // Look for symbol in various formats
+    let symbol = null;
+
+    // Direct symbol field
+    if (historyData.symbol) {
+      symbol = historyData.symbol;
+    }
+    // Nested in data object
+    else if (historyData.data?.symbol) {
+      symbol = historyData.data.symbol;
+    }
+    // Check if it's a trade/order event
+    else if (historyData.type === 'trade' || historyData.type === 'order' || historyData.type === 'simulated_trade') {
+      symbol = historyData.data?.symbol || historyData.symbol;
+    }
+
+    // If we found a symbol and it's different from current, switch chart
+    if (symbol && symbol !== state.settings.symbol) {
+      // Normalize symbol format (e.g., "ETHUSDT" -> "ETH/USDT")
+      if (!symbol.includes('/') && symbol.length >= 6) {
+        // Try to detect common quote currencies
+        const quotes = ['USDT', 'USDC', 'BTC', 'ETH', 'USD', 'EUR'];
+        for (const q of quotes) {
+          if (symbol.endsWith(q)) {
+            symbol = symbol.slice(0, -q.length) + '/' + q;
+            break;
+          }
+        }
+      }
+
+      console.log(`Auto-switching chart to ${symbol}`);
+      state.settings.symbol = symbol;
+      state.chart.symbol = symbol;
+      document.getElementById('sym').textContent = symbol;
+      document.getElementById('settingsSymbol').value = symbol;
+      // Save to localStorage
+      localStorage.setItem('tradingDashboardSettings', JSON.stringify(state.settings));
+      // Request new chart data
+      requestChart();
+    }
   }
 
   function clearHistory(){
