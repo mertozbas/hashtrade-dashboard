@@ -92,7 +92,7 @@
     </section>
 
     <section class="panel" style="grid-column:2;grid-row:2;">
-      <div class="hd"><div>History of Actions</div><div class="ts">events: <span id="eventCount">0</span></div></div>
+      <div class="hd"><div>History of Actions</div><div class="ts">items: <span id="eventCount">0</span></div></div>
       <div class="bd"><div class="timeline" id="timeline"></div></div>
     </section>
 
@@ -108,6 +108,7 @@
         <button class="btn primary" id="btnPlay">Play</button>
         <button class="btn" id="btnNext">⟶</button>
         <button class="btn" id="btnRefresh">Refresh Chart</button>
+        <button class="btn" id="btnClearHistory">Clear History</button>
       </div>
       <div class="sliderWrap">
         <input type="range" id="timeSlider" min="0" max="0" step="1" value="0" />
@@ -121,10 +122,6 @@
   </div>
 
 <script>
-  // Render logic:
-  // - WebSocket stream parsing MUST be turn-based (like example-web.html)
-  // - Time travel uses a separate event log; turns also derive from the same stream.
-
   marked.setOptions({
     highlight: (code, lang) => {
       try{
@@ -138,47 +135,72 @@
 
   const state = {
     playing:false, playTimer:null, nowIndex:0,
-    events:[], snaps:[],
+    streamEvents:[],       // raw stream events for time travel chat
+    streamSnaps:[],
+    historyItems:[],      // persisted "actions" (from history tool)
+    historySnaps:[],
     chart: { symbol:'BTC/USDT', tf:'1m', ohlcv:[] },
   };
 
   let ws = null;
 
-  // Turn-based UI (like /Users/macmert/test/example-web.html)
+  // Turn-based UI (live mode only when slider at end)
   const turns = new Map(); // turnId -> {root, userEl, assistantEl, contentEl, cursorEl, text, tools:[]}
 
   function isoNow(){ return new Date().toISOString(); }
 
-  function addEvent(type, message, data){
-    state.events.push({ts: isoNow(), type, message, data});
-    buildSnaps();
-    setIndex(state.events.length-1);
+  function escapeHtml(s){
+    return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
   }
 
-  function buildSnaps(){
+  // --- STREAM (time travel base) ---
+  function addStreamEvent(type, msg){
+    state.streamEvents.push({ts: isoNow(), type, msg});
+    buildStreamSnaps();
+    setIndex(state.streamEvents.length-1);
+  }
+
+  function buildStreamSnaps(){
     const snaps=[];
     let bal=null;
     let chart=null;
-    for(let i=0;i<state.events.length;i++){
-      const e=state.events[i];
-      if(e.type==='balance') bal=e.data;
-      if(e.type==='ohlcv') chart=e.data;
-      snaps.push({i, ts:e.ts, bal, chart, events: state.events.slice(0,i+1)});
+    for(let i=0;i<state.streamEvents.length;i++){
+      const e=state.streamEvents[i];
+      if(e.type==='balance') bal=e.msg.data;
+      if(e.type==='ohlcv') chart=e.msg.data;
+      snaps.push({i, ts:e.ts, bal, chart, events: state.streamEvents.slice(0,i+1)});
     }
-    state.snaps=snaps;
+    state.streamSnaps=snaps;
     document.getElementById('timeSlider').max=String(Math.max(0, snaps.length-1));
   }
 
   function setIndex(i){
-    state.nowIndex=Math.max(0, Math.min(i, state.snaps.length-1));
+    state.nowIndex=Math.max(0, Math.min(i, state.streamSnaps.length-1));
     document.getElementById('timeSlider').value=String(state.nowIndex);
-    render();
+    renderAll();
   }
 
-  function render(){
-    const snap = state.snaps[state.nowIndex] || {events:[], bal:null, chart:null, ts:''};
-    document.getElementById('eventCount').textContent=String(snap.events.length);
-    document.getElementById('timeReadout').textContent = snap.ts ? `index ${state.nowIndex}/${Math.max(0,state.snaps.length-1)} • ${snap.ts}` : 't=0';
+  function isLive(){
+    return state.nowIndex >= Math.max(0, state.streamSnaps.length-1);
+  }
+
+  // --- HISTORY (actions only) ---
+  function addHistoryItem(rec){
+    if(!rec) return;
+    state.historyItems.push(rec);
+    buildHistorySnaps();
+    // do not force slider; history is independent
+  }
+
+  function buildHistorySnaps(){
+    // simple append-only; keep for future if you want time-bound views
+    state.historySnaps = state.historyItems.slice();
+  }
+
+  // --- RENDER ---
+  function renderAll(){
+    const snap = state.streamSnaps[state.nowIndex] || {events:[], bal:null, chart:null, ts:''};
+    document.getElementById('timeReadout').textContent = snap.ts ? `index ${state.nowIndex}/${Math.max(0,state.streamSnaps.length-1)} • ${snap.ts}` : 't=0';
 
     // balance (best-effort parse)
     if (snap.bal){
@@ -186,14 +208,6 @@
       const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
       document.getElementById('balUsd').textContent = '$' + usd;
       document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
-    }
-
-    // timeline
-    const tl=document.getElementById('timeline'); tl.innerHTML='';
-    for(const e of snap.events){
-      const d=document.createElement('div'); d.className='event';
-      d.innerHTML = `<div class="row"><div class="ts">${escapeHtml(e.type)}</div><div class="ts">${escapeHtml(e.ts)}</div></div><div class="msg">${escapeHtml(e.message)}</div>`;
-      tl.appendChild(d);
     }
 
     // chart
@@ -205,13 +219,45 @@
     } else {
       drawChart([]);
     }
+
+    // center: actions history only
+    renderHistoryPanel();
+
+    // right: time travel chat
+    renderChatFromStream(snap.events);
   }
 
-  function escapeHtml(s){
-    return String(s).replaceAll('&','&amp;').replaceAll('<','&lt;').replaceAll('>','&gt;').replaceAll('"','&quot;').replaceAll("'",'&#039;');
+  function renderHistoryPanel(){
+    document.getElementById('eventCount').textContent = String(state.historyItems.length);
+    const tl=document.getElementById('timeline');
+    tl.innerHTML='';
+
+    // show last 250 actions
+    const items = state.historyItems.slice(-250);
+
+    for(const r of items){
+      const d=document.createElement('div'); d.className='event';
+      const ts = r.ts ? new Date(r.ts*1000).toISOString() : isoNow();
+      const type = r.type || 'action';
+      let msg = '';
+      if(type==='tool_start') msg = `Tool start: ${r.data?.tool || ''} (#${r.data?.tool_number||''})`;
+      else if(type==='tool_end') msg = `Tool end: ${r.data?.status || ''} (${r.data?.success?'success':'error'})`;
+      else if(type==='balance') msg = 'Balance snapshot';
+      else if(type==='ui') msg = `UI: ${r.data?.action || 'action'}`;
+      else msg = JSON.stringify(r.data ?? r);
+
+      d.innerHTML = `<div class="row"><div class="ts">${escapeHtml(type)}</div><div class="ts">${escapeHtml(ts)}</div></div><div class="msg">${escapeHtml(msg)}</div>`;
+      tl.appendChild(d);
+    }
   }
 
-  // --- Turn rendering (stream parsing correctness) ---
+  // --- CHAT time travel: rebuild DOM from events up to snapshot ---
+  function clearChat(){
+    document.getElementById('chat').innerHTML='';
+    turns.clear();
+    document.getElementById('turnCount').textContent = '0';
+  }
+
   function createTurn(turnId, userMessage){
     const root=document.createElement('div');
     root.className='turn';
@@ -239,7 +285,6 @@
 
     const chat=document.getElementById('chat');
     chat.appendChild(root);
-    chat.scrollTop=chat.scrollHeight;
 
     turns.set(turnId, {root, userEl:user, assistantEl:assistant, contentEl:content, cursorEl:cursor, text:'', tools:[]});
     document.getElementById('turnCount').textContent = String(turns.size);
@@ -254,10 +299,6 @@
     const html = marked.parse(turn.text);
     turn.contentEl.innerHTML = html;
     turn.contentEl.querySelectorAll('pre code').forEach((block)=>hljs.highlightElement(block));
-
-    turn.assistantEl.scrollIntoView({block:'end'});
-    const chat=document.getElementById('chat');
-    chat.scrollTop=chat.scrollHeight;
   }
 
   function addToolStatus(turnId, toolName, toolNumber){
@@ -266,7 +307,6 @@
     const tool=document.createElement('div');
     tool.className='tool-status';
     tool.textContent = `Tool #${toolNumber}: ${toolName}`;
-    // insert before content
     turn.assistantEl.insertBefore(tool, turn.contentEl);
     turn.tools.push(tool);
   }
@@ -285,6 +325,36 @@
     if(turn.cursorEl && turn.cursorEl.parentNode) turn.cursorEl.remove();
   }
 
+  function renderChatFromStream(streamEvents){
+    // rebuild from scratch for correctness when scrubbing
+    clearChat();
+
+    for(const e of streamEvents){
+      const msg = e.msg || {};
+      switch(e.type){
+        case 'turn_start':
+          createTurn(msg.turn_id, msg.data || '');
+          break;
+        case 'chunk':
+          updateTurnContent(msg.turn_id, msg.data || '');
+          break;
+        case 'tool_start':
+          addToolStatus(msg.turn_id, msg.data || 'tool', msg.tool_number || 1);
+          break;
+        case 'tool_end':
+          updateToolStatus(msg.turn_id, !!msg.success);
+          break;
+        case 'turn_end':
+          finalizeTurn(msg.turn_id);
+          break;
+      }
+    }
+
+    // scroll bottom
+    const chat=document.getElementById('chat');
+    chat.scrollTop=chat.scrollHeight;
+  }
+
   // --- WS ---
   function connect(){
     if (ws && ws.readyState===1) return;
@@ -293,17 +363,15 @@
 
     ws.onopen=()=>{
       document.getElementById('conn').textContent='connected';
-      addEvent('system','connected',{});
       requestChart();
     };
 
     ws.onclose=()=>{
       document.getElementById('conn').textContent='disconnected';
-      addEvent('system','disconnected',{});
     };
 
     ws.onerror=(e)=>{
-      addEvent('system','ws error',String(e));
+      console.log('ws error', e);
     };
 
     ws.onmessage=(ev)=>{
@@ -311,16 +379,33 @@
       try{ msg=JSON.parse(ev.data); }catch{ msg={type:'raw', data:ev.data}; }
       const t=msg.type;
 
-      // keep time-travel log
-      if (t==='turn_start') addEvent('turn_start', msg.data || '', msg);
-      if (t==='chunk') addEvent('chunk', msg.data || '', msg);
-      if (t==='tool_start') addEvent('tool_start', msg.data || '', msg);
-      if (t==='tool_end') addEvent('tool_end', msg.data || '', msg);
-      if (t==='balance') addEvent('balance', 'balance snapshot', msg.data);
-      if (t==='ohlcv') addEvent('ohlcv', 'ohlcv update', msg.data);
-      if (t==='error') addEvent('error', msg.data || 'error', msg);
+      // Actions history stream
+      if(t==='history_sync'){
+        const arr = Array.isArray(msg.data) ? msg.data : [];
+        state.historyItems = arr;
+        buildHistorySnaps();
+        renderHistoryPanel();
+        return;
+      }
+      if(t==='history'){
+        addHistoryItem(msg.data);
+        // keep panel in sync even while scrubbing
+        renderHistoryPanel();
+        return;
+      }
+      if(t==='history_cleared'){
+        state.historyItems=[]; buildHistorySnaps(); renderHistoryPanel();
+        return;
+      }
 
-      // correct streaming UI rendering (turn-based)
+      // Store stream events for time travel (do NOT put chunks into history panel)
+      if (t==='turn_start' || t==='chunk' || t==='tool_start' || t==='tool_end' || t==='turn_end' || t==='balance' || t==='ohlcv' || t==='error'){
+        addStreamEvent(t, msg);
+      }
+
+      // Live UI updates ONLY when at end of timeline
+      if(!isLive()) return;
+
       switch(t){
         case 'connected':
           return;
@@ -343,6 +428,10 @@
           if (msg.turn_id) finalizeTurn(msg.turn_id);
           break;
       }
+
+      // keep scrolled
+      const chat=document.getElementById('chat');
+      chat.scrollTop=chat.scrollHeight;
     };
   }
 
@@ -351,7 +440,6 @@
     const text=input.value.trim();
     if(!text) return;
     input.value='';
-    addEvent('user', text, {});
     ws?.send(text);
   }
 
@@ -360,13 +448,22 @@
     ws?.send(JSON.stringify(req));
   }
 
+  function clearHistory(){
+    ws?.send(JSON.stringify({type:'history', action:'clear'}));
+  }
+
   function togglePlay(){
     state.playing=!state.playing;
     document.getElementById('btnPlay').textContent = state.playing ? 'Pause' : 'Play';
     if(state.playing){
       state.playTimer=setInterval(()=>{
-        if(!state.snaps.length) return;
-        if(state.nowIndex>=state.snaps.length-1){state.playing=false;document.getElementById('btnPlay').textContent='Play';clearInterval(state.playTimer);return;}
+        if(!state.streamSnaps.length) return;
+        if(state.nowIndex>=state.streamSnaps.length-1){
+          state.playing=false;
+          document.getElementById('btnPlay').textContent='Play';
+          clearInterval(state.playTimer);
+          return;
+        }
         setIndex(state.nowIndex+1);
       }, 250);
     } else {
@@ -434,6 +531,7 @@
   document.getElementById('btnNext').onclick=()=>setIndex(state.nowIndex+1);
   document.getElementById('btnPlay').onclick=togglePlay;
   document.getElementById('btnRefresh').onclick=requestChart;
+  document.getElementById('btnClearHistory').onclick=clearHistory;
   document.getElementById('timeSlider').addEventListener('input', (e)=>setIndex(parseInt(e.target.value||'0',10)));
 
   // auto connect

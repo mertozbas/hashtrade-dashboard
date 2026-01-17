@@ -1,0 +1,6 @@
+{"ts": 1768627852.273379, "type": "ui", "turn_id": "ui-d71a395d-6baf-422a-a029-533a06431150", "data": {"action": "fetch_ohlcv", "exchange": "bybit", "symbol": "BTC/USDT", "timeframe": "1m", "limit": 240, "points": 0}}
+{"ts": 1768627864.748895, "type": "ui", "turn_id": "ui-6daa7773-ccff-4de7-adca-8d490c43a635", "data": {"action": "fetch_ohlcv", "exchange": "bybit", "symbol": "BTC/USDT", "timeframe": "1m", "limit": 240, "points": 0}}
+{"ts": 1768627870.2497978, "type": "test_history", "turn_id": "manual", "data": {}}
+{"ts": 1768627873.632519, "type": "tool_start", "turn_id": "3d6aa5ac-5179-440c-85c0-09aa787c0f3c", "data": {"tool": "history", "tool_number": 1}}
+{"ts": 1768627873.634517, "type": "tool_end", "turn_id": "3d6aa5ac-5179-440c-85c0-09aa787c0f3c", "data": {"status": "success", "success": true}}
+{"ts": 1768628398.222812, "type": "ui", "turn_id": "ui-7ff10e13-099f-4149-89bc-c94d0ad31b96", "data": {"action": "fetch_ohlcv", "exchange": "bybit", "symbol": "BTC/USDT", "timeframe": "1m", "limit": 240, "points": 0}}

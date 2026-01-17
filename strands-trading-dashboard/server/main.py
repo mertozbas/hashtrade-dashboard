@@ -35,6 +35,11 @@ class WSCallback:
     - chunk: reasoningText (reasoning flag) + data
     - tool_start: on tool change (tool_number)
     - tool_end: on toolResult (success)
+
+    IMPORTANT:
+    - Do NOT call tools (esp. history) from inside this callback.
+      That creates recursion where "history" becomes the observed tool.
+    - We only STREAM here. Persistence happens AFTER the turn.
     """
 
     def __init__(self, websocket, loop, turn_id: str):
@@ -43,6 +48,9 @@ class WSCallback:
         self.turn_id = turn_id
         self.tool_count = 0
         self.previous_tool_use = None
+
+        # turn-local action capture (no tool calls)
+        self.actions: list[dict] = []  # [{type:'tool_start'|'tool_end', ...}]
 
     async def _send(self, msg_type: str, data: Any = "", meta: Dict[str, Any] | None = None):
         try:
@@ -69,10 +77,18 @@ class WSCallback:
             if self.previous_tool_use != current_tool_use:
                 self.previous_tool_use = current_tool_use
                 self.tool_count += 1
-                self._schedule(
-                    "tool_start",
-                    current_tool_use.get("name", "Unknown tool"),
-                    {"tool_number": self.tool_count},
+                tool_name = current_tool_use.get("name", "Unknown tool")
+
+                self._schedule("tool_start", tool_name, {"tool_number": self.tool_count})
+
+                # capture for persistence later
+                self.actions.append(
+                    {
+                        "type": "tool_start",
+                        "tool": tool_name,
+                        "tool_number": self.tool_count,
+                        "ts": time.time(),
+                    }
                 )
 
         # Tool results: Strands emits toolResult inside message content
@@ -82,10 +98,18 @@ class WSCallback:
                     tool_result = content.get("toolResult")
                     if tool_result:
                         status = tool_result.get("status", "unknown")
-                        self._schedule(
-                            "tool_end",
-                            status,
-                            {"success": status == "success"},
+                        success = status == "success"
+
+                        self._schedule("tool_end", status, {"success": success})
+
+                        # capture for persistence later
+                        self.actions.append(
+                            {
+                                "type": "tool_end",
+                                "status": status,
+                                "success": success,
+                                "ts": time.time(),
+                            }
                         )
 
 
@@ -109,8 +133,28 @@ def _extract_json_block(text: str) -> Any:
     return None
 
 
+def _history_emit_and_store(agent, websocket, turn_id: str, event_type: str, data: dict):
+    """Store history via history tool + emit to UI. MUST be called outside callbacks."""
+    if not (hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", [])):
+        return
+
+    try:
+        res = agent.tool.history(
+            action="add",
+            event_type=event_type,
+            data=data,
+            turn_id=turn_id,
+            record_direct_tool_call=False,
+        )
+        rec = res.get("record")
+        if rec:
+            # emit as a history event
+            asyncio.create_task(websocket.send(StreamMsg("history", turn_id, time.time(), rec).dumps()))
+    except Exception:
+        pass
+
+
 async def _handle_ui_action(agent, websocket, payload: dict):
-    # Keep UI messages in the same message format
     turn_id = payload.get("turn_id") or f"ui-{uuid.uuid4()}"
     action = payload.get("action")
 
@@ -139,6 +183,16 @@ async def _handle_ui_action(agent, websocket, payload: dict):
                     {"symbol": symbol, "timeframe": timeframe, "ohlcv": ohlcv},
                 ).dumps()
             )
+
+            # Persist UI action as history (safe: we're outside callback)
+            _history_emit_and_store(
+                agent,
+                websocket,
+                turn_id,
+                "ui",
+                {"action": "fetch_ohlcv", "exchange": exchange, "symbol": symbol, "timeframe": timeframe, "limit": limit, "points": len(ohlcv)},
+            )
+
         except Exception as e:
             await _send_ui_error(websocket, turn_id, f"fetch_ohlcv failed: {e}")
         return
@@ -147,22 +201,49 @@ async def _handle_ui_action(agent, websocket, payload: dict):
 
 
 async def run_turn(agent, websocket, loop, user_text: str, turn_id: str):
-    # IMPORTANT: frontend expects turn_start BEFORE chunks
     await websocket.send(StreamMsg("turn_start", turn_id, time.time(), user_text).dumps())
 
-    agent.callback_handler = WSCallback(websocket, loop, turn_id)
+    cb = WSCallback(websocket, loop, turn_id)
+    agent.callback_handler = cb
 
     await loop.run_in_executor(None, agent, user_text)
+
+    # Persist captured tool actions (safe: after turn)
+    for a in cb.actions:
+        if a.get("type") == "tool_start":
+            _history_emit_and_store(
+                agent,
+                websocket,
+                turn_id,
+                "tool_start",
+                {"tool": a.get("tool"), "tool_number": a.get("tool_number")},
+            )
+        elif a.get("type") == "tool_end":
+            _history_emit_and_store(
+                agent,
+                websocket,
+                turn_id,
+                "tool_end",
+                {"status": a.get("status"), "success": bool(a.get("success"))},
+            )
 
     # best-effort balance snapshot after each turn
     try:
         if hasattr(agent, "tool") and "balance" in getattr(agent, "tool_names", []):
             bal_res = agent.tool.balance(action="get", record_direct_tool_call=False)
             await websocket.send(StreamMsg("balance", turn_id, time.time(), bal_res).dumps())
+
+            # Persist balance (safe: after turn)
+            _history_emit_and_store(
+                agent,
+                websocket,
+                turn_id,
+                "balance",
+                {"balance": bal_res},
+            )
+
     except Exception as e:
-        await websocket.send(
-            StreamMsg("balance", turn_id, time.time(), {"status": "error", "error": str(e)}).dumps()
-        )
+        await websocket.send(StreamMsg("balance", turn_id, time.time(), {"status": "error", "error": str(e)}).dumps())
 
     await websocket.send(StreamMsg("turn_end", turn_id, time.time()).dumps())
 
@@ -175,11 +256,19 @@ async def handle_client(websocket):
     proj_root = os.path.abspath(os.path.join(os.path.dirname(__file__), ".."))
     os.chdir(proj_root)
 
-    # Per-connection DevDuck (like websocket_ref)
     dd = DevDuck(auto_start_servers=False)
     agent = dd.agent
 
     await websocket.send(StreamMsg("connected", "", time.time(), "connected").dumps())
+
+    # send recent history (best-effort)
+    try:
+        if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
+            tail = agent.tool.history(action="tail", limit=200, record_direct_tool_call=False)
+            items = tail.get("items") or []
+            await websocket.send(StreamMsg("history_sync", "", time.time(), items).dumps())
+    except Exception:
+        pass
 
     active = set()
     async for raw in websocket:
@@ -187,12 +276,16 @@ async def handle_client(websocket):
         if not raw:
             continue
 
-        # UI control messages are JSON
         if raw.startswith("{"):
             try:
                 payload = json.loads(raw)
                 if isinstance(payload, dict) and payload.get("type") == "ui":
                     await _handle_ui_action(agent, websocket, payload)
+                    continue
+                if isinstance(payload, dict) and payload.get("type") == "history" and payload.get("action") == "clear":
+                    if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
+                        agent.tool.history(action="clear", record_direct_tool_call=False)
+                        await websocket.send(StreamMsg("history_cleared", "", time.time(), "cleared").dumps())
                     continue
             except Exception:
                 pass
