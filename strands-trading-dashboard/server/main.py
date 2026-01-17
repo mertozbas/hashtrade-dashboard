@@ -153,7 +153,7 @@ def _history_emit_and_store(agent, websocket, turn_id: str, event_type: str, dat
         pass
 
 
-async def _handle_ui_action(agent, websocket, payload: dict):
+async def _handle_ui_action(agent, websocket, payload: dict, client_creds: dict):
     turn_id = payload.get("turn_id") or f"ui-{uuid.uuid4()}"
     action = payload.get("action")
 
@@ -161,7 +161,8 @@ async def _handle_ui_action(agent, websocket, payload: dict):
         symbol = payload.get("symbol", "BTC/USDT")
         timeframe = payload.get("timeframe", "1m")
         limit = int(payload.get("limit", 240))
-        exchange_id = payload.get("exchange", os.getenv("DASH_EXCHANGE", "bybit"))
+        # Use client credentials if available, otherwise fall back to env
+        exchange_id = payload.get("exchange") or client_creds.get("exchange") or os.getenv("DASH_EXCHANGE", "bybit")
 
         try:
             if ccxt is None:
@@ -169,10 +170,21 @@ async def _handle_ui_action(agent, websocket, payload: dict):
 
             # Use CCXT directly instead of going through agent wrapper
             exchange_class = getattr(ccxt, exchange_id)
-            exchange_instance = exchange_class({
+
+            # Build config with optional credentials
+            cfg = {
                 "enableRateLimit": True,
                 "options": {"defaultType": "swap"} if exchange_id == "bybit" else {}
-            })
+            }
+
+            # Add API credentials if provided by client
+            api_key = client_creds.get("apiKey")
+            api_secret = client_creds.get("apiSecret")
+            if api_key and api_secret:
+                cfg["apiKey"] = api_key
+                cfg["secret"] = api_secret
+
+            exchange_instance = exchange_class(cfg)
 
             ohlcv = exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
 
@@ -260,6 +272,13 @@ async def handle_client(websocket):
     dd = DevDuck(auto_start_servers=False)
     agent = dd.agent
 
+    # Per-client credentials (set via 'credentials' message from UI)
+    client_creds = {
+        "exchange": os.getenv("DASH_EXCHANGE", "bybit"),
+        "apiKey": "",
+        "apiSecret": ""
+    }
+
     await websocket.send(StreamMsg("connected", "", time.time(), "connected").dumps())
 
     # send recent history (best-effort)
@@ -280,8 +299,17 @@ async def handle_client(websocket):
         if raw.startswith("{"):
             try:
                 payload = json.loads(raw)
+
+                # Handle credentials update from UI
+                if isinstance(payload, dict) and payload.get("type") == "credentials":
+                    client_creds["exchange"] = payload.get("exchange") or client_creds["exchange"]
+                    client_creds["apiKey"] = payload.get("apiKey") or ""
+                    client_creds["apiSecret"] = payload.get("apiSecret") or ""
+                    await websocket.send(StreamMsg("credentials_updated", "", time.time(), {"exchange": client_creds["exchange"]}).dumps())
+                    continue
+
                 if isinstance(payload, dict) and payload.get("type") == "ui":
-                    await _handle_ui_action(agent, websocket, payload)
+                    await _handle_ui_action(agent, websocket, payload, client_creds)
                     continue
                 if isinstance(payload, dict) and payload.get("type") == "history" and payload.get("action") == "clear":
                     if hasattr(agent, "tool") and "history" in getattr(agent, "tool_names", []):
