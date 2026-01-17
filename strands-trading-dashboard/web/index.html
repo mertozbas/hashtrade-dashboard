@@ -63,18 +63,99 @@
     .dot{width:8px;height:8px;border-radius:99px;display:inline-block;margin-right:6px}
 
     @media (max-width:1200px){body{overflow:auto}.app{height:auto;grid-template-columns:1fr;grid-template-rows:auto}header,footer{grid-column:1}}
+
+    /* Settings Modal */
+    .modal-overlay{position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,0.7);display:none;align-items:center;justify-content:center;z-index:1000}
+    .modal-overlay.show{display:flex}
+    .modal{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);padding:24px;width:400px;max-width:90%}
+    .modal h2{margin:0 0 20px;font-size:18px;color:var(--text)}
+    .form-group{margin-bottom:16px}
+    .form-group label{display:block;font-size:12px;color:var(--muted);margin-bottom:6px}
+    .form-group input,.form-group select{width:100%;background:rgba(0,0,0,.25);border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--text);font-size:13px;outline:none}
+    .form-group input:focus,.form-group select:focus{border-color:var(--accent)}
+    .form-row{display:flex;gap:12px}
+    .form-row .form-group{flex:1}
+    .modal-actions{display:flex;gap:10px;margin-top:20px}
+    .modal-actions .btn{flex:1}
+    .status-dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+    .status-dot.connected{background:var(--good)}
+    .status-dot.disconnected{background:var(--bad)}
+    .live-indicator{display:inline-flex;align-items:center;gap:6px;padding:4px 10px;border-radius:20px;font-size:11px;background:rgba(46,229,157,0.15);color:var(--good);border:1px solid rgba(46,229,157,0.3)}
+    .live-indicator.paused{background:rgba(255,211,106,0.15);color:var(--warn);border-color:rgba(255,211,106,0.3)}
+    .live-dot{width:6px;height:6px;border-radius:50%;background:var(--good);animation:pulse 1.5s infinite}
+    .live-indicator.paused .live-dot{background:var(--warn);animation:none}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
   </style>
 </head>
 <body>
   <div class="app">
     <header>
-      <div class="brand"><div class="logo"></div><div><h1>Trading Agent Dashboard <span class="sub">(WS streaming)</span></h1><div class="sub" id="conn">disconnected</div></div></div>
+      <div class="brand"><div class="logo"></div><div><h1>Trading Agent Dashboard <span class="sub">(WS streaming)</span></h1><div class="sub" id="conn"><span class="status-dot disconnected"></span>disconnected</div></div></div>
       <div class="top">
         <div><div class="pill">BALANCE</div><div class="balance"><span id="balUsd">$0.00</span> <span class="pill">USD</span></div></div>
         <div><div class="pill">USDT</div><div class="balance"><span id="balUsdt">0.00</span></div></div>
         <div><div class="pill">SYMBOL</div><div class="balance" id="sym">BTC/USDT</div></div>
+        <div class="live-indicator paused" id="liveIndicator"><span class="live-dot"></span><span id="liveText">Paused</span></div>
+        <button class="btn" id="btnSettings">Settings</button>
       </div>
     </header>
+
+    <!-- Settings Modal -->
+    <div class="modal-overlay" id="settingsModal">
+      <div class="modal">
+        <h2>Exchange Settings</h2>
+        <div class="form-group">
+          <label>Exchange</label>
+          <select id="settingsExchange">
+            <option value="bybit">Bybit</option>
+            <option value="binance">Binance</option>
+            <option value="okx">OKX</option>
+            <option value="kucoin">KuCoin</option>
+            <option value="kraken">Kraken</option>
+            <option value="coinbase">Coinbase</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label>API Key</label>
+          <input type="text" id="settingsApiKey" placeholder="Enter your API key" autocomplete="off" />
+        </div>
+        <div class="form-group">
+          <label>API Secret</label>
+          <input type="password" id="settingsApiSecret" placeholder="Enter your API secret" autocomplete="off" />
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label>Symbol</label>
+            <input type="text" id="settingsSymbol" value="BTC/USDT" placeholder="BTC/USDT" />
+          </div>
+          <div class="form-group">
+            <label>Timeframe</label>
+            <select id="settingsTimeframe">
+              <option value="1m">1 minute</option>
+              <option value="5m">5 minutes</option>
+              <option value="15m">15 minutes</option>
+              <option value="1h">1 hour</option>
+              <option value="4h">4 hours</option>
+              <option value="1d">1 day</option>
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label>Live Update Interval</label>
+          <select id="settingsInterval">
+            <option value="0">Disabled</option>
+            <option value="5000" selected>5 seconds</option>
+            <option value="10000">10 seconds</option>
+            <option value="30000">30 seconds</option>
+            <option value="60000">1 minute</option>
+          </select>
+        </div>
+        <div class="modal-actions">
+          <button class="btn" id="btnSettingsCancel">Cancel</button>
+          <button class="btn primary" id="btnSettingsSave">Save & Connect</button>
+        </div>
+      </div>
+    </div>
 
     <section class="panel" style="grid-column:1;grid-row:2;">
       <div class="hd"><div>Market Graph</div><div class="ts" id="chartMeta">waiting...</div></div>
@@ -139,9 +220,127 @@
     streamSnaps:[],        // snapshots at each event index (for time travel)
     historyItems:[],       // all history items (full list)
     chart: { symbol:'BTC/USDT', tf:'1m', ohlcv:[] },
+    // Settings & credentials
+    settings: {
+      exchange: 'bybit',
+      apiKey: '',
+      apiSecret: '',
+      symbol: 'BTC/USDT',
+      timeframe: '1m',
+      liveInterval: 5000
+    },
+    liveTimer: null
   };
 
   let ws = null;
+
+  // Load settings from localStorage
+  function loadSettings() {
+    try {
+      const saved = localStorage.getItem('tradingDashboardSettings');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        Object.assign(state.settings, parsed);
+      }
+    } catch (e) { console.warn('Failed to load settings:', e); }
+
+    // Update UI
+    document.getElementById('settingsExchange').value = state.settings.exchange;
+    document.getElementById('settingsApiKey').value = state.settings.apiKey;
+    document.getElementById('settingsApiSecret').value = state.settings.apiSecret;
+    document.getElementById('settingsSymbol').value = state.settings.symbol;
+    document.getElementById('settingsTimeframe').value = state.settings.timeframe;
+    document.getElementById('settingsInterval').value = String(state.settings.liveInterval);
+
+    // Update chart state
+    state.chart.symbol = state.settings.symbol;
+    state.chart.tf = state.settings.timeframe;
+    document.getElementById('sym').textContent = state.settings.symbol;
+  }
+
+  function saveSettings() {
+    state.settings.exchange = document.getElementById('settingsExchange').value;
+    state.settings.apiKey = document.getElementById('settingsApiKey').value;
+    state.settings.apiSecret = document.getElementById('settingsApiSecret').value;
+    state.settings.symbol = document.getElementById('settingsSymbol').value;
+    state.settings.timeframe = document.getElementById('settingsTimeframe').value;
+    state.settings.liveInterval = parseInt(document.getElementById('settingsInterval').value, 10);
+
+    // Save to localStorage (note: API keys in localStorage is not ideal for production)
+    localStorage.setItem('tradingDashboardSettings', JSON.stringify(state.settings));
+
+    // Update chart state
+    state.chart.symbol = state.settings.symbol;
+    state.chart.tf = state.settings.timeframe;
+    document.getElementById('sym').textContent = state.settings.symbol;
+
+    // Send credentials to server
+    sendCredentials();
+
+    // Restart live timer
+    startLiveTimer();
+
+    // Close modal
+    closeSettingsModal();
+
+    // Fetch chart and balance immediately
+    requestChart();
+    requestBalance();
+  }
+
+  function sendCredentials() {
+    if (!ws || ws.readyState !== 1) return;
+    ws.send(JSON.stringify({
+      type: 'credentials',
+      exchange: state.settings.exchange,
+      apiKey: state.settings.apiKey,
+      apiSecret: state.settings.apiSecret
+    }));
+  }
+
+  function openSettingsModal() {
+    document.getElementById('settingsModal').classList.add('show');
+  }
+
+  function closeSettingsModal() {
+    document.getElementById('settingsModal').classList.remove('show');
+  }
+
+  function startLiveTimer() {
+    // Clear existing timer
+    if (state.liveTimer) {
+      clearInterval(state.liveTimer);
+      state.liveTimer = null;
+    }
+
+    const indicator = document.getElementById('liveIndicator');
+    const liveText = document.getElementById('liveText');
+
+    if (state.settings.liveInterval > 0) {
+      indicator.classList.remove('paused');
+      liveText.textContent = 'Live';
+
+      state.liveTimer = setInterval(() => {
+        if (ws && ws.readyState === 1) {
+          requestChart();
+        }
+      }, state.settings.liveInterval);
+    } else {
+      indicator.classList.add('paused');
+      liveText.textContent = 'Paused';
+    }
+  }
+
+  function stopLiveTimer() {
+    if (state.liveTimer) {
+      clearInterval(state.liveTimer);
+      state.liveTimer = null;
+    }
+    const indicator = document.getElementById('liveIndicator');
+    const liveText = document.getElementById('liveText');
+    indicator.classList.add('paused');
+    liveText.textContent = 'Paused';
+  }
 
   // Turn-based UI (live mode only when slider at end)
   const turns = new Map(); // turnId -> {root, userEl, assistantEl, contentEl, cursorEl, text, tools:[]}
@@ -206,12 +405,24 @@
     const snap = state.streamSnaps[state.nowIndex] || {events:[], bal:null, chart:null, history:[], ts:''};
     document.getElementById('timeReadout').textContent = snap.ts ? `index ${state.nowIndex}/${Math.max(0,state.streamSnaps.length-1)} • ${snap.ts}` : 't=0';
 
-    // balance (best-effort parse)
+    // balance display
     if (snap.bal){
-      const t = (snap.bal.content?.[0]?.text ?? JSON.stringify(snap.bal)).toString();
-      const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
-      document.getElementById('balUsd').textContent = '$' + usd;
-      document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
+      const bal = snap.bal;
+      // New format: {status, total: {USDT: x, BTC: y}, free: {...}}
+      if (bal.total) {
+        const usdt = parseFloat(bal.total.USDT || bal.total.USD || 0);
+        const btc = parseFloat(bal.total.BTC || 0);
+        // Calculate approximate USD value (USDT + BTC value)
+        const approxUsd = usdt + (btc * (state.chart.ohlcv?.length ? state.chart.ohlcv[state.chart.ohlcv.length-1][4] : 0));
+        document.getElementById('balUsd').textContent = '$' + approxUsd.toFixed(2);
+        document.getElementById('balUsdt').textContent = usdt.toFixed(2);
+      } else {
+        // Legacy format fallback
+        const t = (bal.content?.[0]?.text ?? JSON.stringify(bal)).toString();
+        const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
+        document.getElementById('balUsd').textContent = '$' + usd;
+        document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
+      }
     }
 
     // chart
@@ -365,15 +576,22 @@
   function connect(){
     if (ws && ws.readyState===1) return;
     ws = new WebSocket('ws://127.0.0.1:8090');
-    document.getElementById('conn').textContent='connecting...';
+    document.getElementById('conn').innerHTML='<span class="status-dot disconnected"></span>connecting...';
 
     ws.onopen=()=>{
-      document.getElementById('conn').textContent='connected';
+      document.getElementById('conn').innerHTML='<span class="status-dot connected"></span>connected';
+      // Send credentials first
+      sendCredentials();
+      // Then request chart and balance
       requestChart();
+      requestBalance();
+      // Start live timer
+      startLiveTimer();
     };
 
     ws.onclose=()=>{
-      document.getElementById('conn').textContent='disconnected';
+      document.getElementById('conn').innerHTML='<span class="status-dot disconnected"></span>disconnected';
+      stopLiveTimer();
     };
 
     ws.onerror=(e)=>{
@@ -451,7 +669,25 @@
   }
 
   function requestChart(){
-    const req = {type:'ui', action:'fetch_ohlcv', symbol: state.chart.symbol, timeframe: state.chart.tf, limit: 240};
+    const req = {
+      type: 'ui',
+      action: 'fetch_ohlcv',
+      exchange: state.settings.exchange,
+      symbol: state.settings.symbol,
+      timeframe: state.settings.timeframe,
+      limit: 240
+    };
+    ws?.send(JSON.stringify(req));
+  }
+
+  function requestBalance(){
+    const req = {
+      type: 'ui',
+      action: 'fetch_balance',
+      exchange: state.settings.exchange,
+      apiKey: state.settings.apiKey,
+      apiSecret: state.settings.apiSecret
+    };
     ws?.send(JSON.stringify(req));
   }
 
@@ -541,7 +777,16 @@
   document.getElementById('btnClearHistory').onclick=clearHistory;
   document.getElementById('timeSlider').addEventListener('input', (e)=>setIndex(parseInt(e.target.value||'0',10)));
 
-  // auto connect
+  // Settings modal
+  document.getElementById('btnSettings').onclick=openSettingsModal;
+  document.getElementById('btnSettingsCancel').onclick=closeSettingsModal;
+  document.getElementById('btnSettingsSave').onclick=saveSettings;
+  document.getElementById('settingsModal').onclick=(e)=>{
+    if(e.target.id==='settingsModal') closeSettingsModal();
+  };
+
+  // Load settings and auto connect
+  loadSettings();
   connect();
 </script>
 </body>
