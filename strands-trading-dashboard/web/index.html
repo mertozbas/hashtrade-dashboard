@@ -92,7 +92,8 @@
     <header>
       <div class="brand"><div class="logo"></div><div><h1>Trading Agent Dashboard <span class="sub">(WS streaming)</span></h1><div class="sub" id="conn"><span class="status-dot disconnected"></span>disconnected</div></div></div>
       <div class="top">
-        <div><div class="pill">BALANCE</div><div class="balance"><span id="balUsd">$0.00</span> <span class="pill">USD</span></div></div>
+        <div><div class="pill">TOTAL</div><div class="balance"><span id="balTotal">$0.00</span></div></div>
+        <div><div class="pill">AVAILABLE</div><div class="balance"><span id="balFree">$0.00</span></div></div>
         <div><div class="pill">USDT</div><div class="balance"><span id="balUsdt">0.00</span></div></div>
         <div><div class="pill">SYMBOL</div><div class="balance" id="sym">BTC/USDT</div></div>
         <div class="live-indicator paused" id="liveIndicator"><span class="live-dot"></span><span id="liveText">Paused</span></div>
@@ -408,19 +409,29 @@
     // balance display
     if (snap.bal){
       const bal = snap.bal;
+      const btcPrice = state.chart.ohlcv?.length ? state.chart.ohlcv[state.chart.ohlcv.length-1][4] : 0;
+
       // New format: {status, total: {USDT: x, BTC: y}, free: {...}}
       if (bal.total) {
-        const usdt = parseFloat(bal.total.USDT || bal.total.USD || 0);
-        const btc = parseFloat(bal.total.BTC || 0);
-        // Calculate approximate USD value (USDT + BTC value)
-        const approxUsd = usdt + (btc * (state.chart.ohlcv?.length ? state.chart.ohlcv[state.chart.ohlcv.length-1][4] : 0));
-        document.getElementById('balUsd').textContent = '$' + approxUsd.toFixed(2);
-        document.getElementById('balUsdt').textContent = usdt.toFixed(2);
+        // Calculate total USD value
+        const totalUsdt = parseFloat(bal.total.USDT || bal.total.USD || 0);
+        const totalBtc = parseFloat(bal.total.BTC || 0);
+        const totalUsd = totalUsdt + (totalBtc * btcPrice);
+
+        // Calculate free/available USD value
+        const freeUsdt = parseFloat(bal.free?.USDT || bal.free?.USD || 0);
+        const freeBtc = parseFloat(bal.free?.BTC || 0);
+        const freeUsd = freeUsdt + (freeBtc * btcPrice);
+
+        document.getElementById('balTotal').textContent = '$' + totalUsd.toFixed(2);
+        document.getElementById('balFree').textContent = '$' + freeUsd.toFixed(2);
+        document.getElementById('balUsdt').textContent = totalUsdt.toFixed(2);
       } else {
         // Legacy format fallback
         const t = (bal.content?.[0]?.text ?? JSON.stringify(bal)).toString();
         const usd = t.match(/\$\s*(\d+(?:\.\d+)?)/)?.[1] ?? t.match(/(\d+(?:\.\d+)?)/)?.[1] ?? '0.00';
-        document.getElementById('balUsd').textContent = '$' + usd;
+        document.getElementById('balTotal').textContent = '$' + usd;
+        document.getElementById('balFree').textContent = '$' + usd;
         document.getElementById('balUsdt').textContent = (t.match(/USDT[^0-9]*(\d+(?:\.\d+)?)/i)?.[1] ?? '');
       }
     }
