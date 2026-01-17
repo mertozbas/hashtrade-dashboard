@@ -161,31 +161,27 @@ async def _handle_ui_action(agent, websocket, payload: dict, client_creds: dict)
         symbol = payload.get("symbol", "BTC/USDT")
         timeframe = payload.get("timeframe", "1m")
         limit = int(payload.get("limit", 240))
-        # Use client credentials if available, otherwise fall back to env
         exchange_id = payload.get("exchange") or client_creds.get("exchange") or os.getenv("DASH_EXCHANGE", "bybit")
 
         try:
             if ccxt is None:
                 raise ImportError("ccxt not installed")
 
-            # Use CCXT directly instead of going through agent wrapper
             exchange_class = getattr(ccxt, exchange_id)
 
-            # Build config with optional credentials
-            cfg = {
-                "enableRateLimit": True,
-                "options": {"defaultType": "swap"} if exchange_id == "bybit" else {}
-            }
+            # fetch_ohlcv is a PUBLIC endpoint - no API keys needed
+            # Adding keys can cause issues (testnet/mainnet mismatch, wrong permissions)
+            cfg = {"enableRateLimit": True}
 
-            # Add API credentials if provided by client
-            api_key = client_creds.get("apiKey")
-            api_secret = client_creds.get("apiSecret")
-            if api_key and api_secret:
-                cfg["apiKey"] = api_key
-                cfg["secret"] = api_secret
+            # Exchange-specific options
+            if exchange_id == "bybit":
+                cfg["options"] = {"defaultType": "spot"}  # Use spot for public data
+            elif exchange_id == "binance":
+                cfg["options"] = {"defaultType": "spot"}
+            elif exchange_id == "okx":
+                cfg["options"] = {"defaultType": "spot"}
 
             exchange_instance = exchange_class(cfg)
-
             ohlcv = exchange_instance.fetch_ohlcv(symbol, timeframe, limit=limit)
 
             await websocket.send(
